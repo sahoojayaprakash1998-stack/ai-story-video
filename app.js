@@ -3,47 +3,45 @@
 const VIDEO_CATALOG = {
   Cinematic: [
     "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
-    "https://media.w3.org/2010/05/sintel/trailer.mp4",
-    "https://media.w3.org/2010/05/bunny/trailer.mp4"
+    "https://media.w3.org/2010/05/sintel/trailer.mp4"
   ],
   Realistic: [
-    "https://media.w3.org/2010/05/bunny/trailer.mp4",
-    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"
+    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+    "https://media.w3.org/2010/05/sintel/trailer.mp4"
   ],
   Anime: [
     "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
-    "https://media.w3.org/2010/05/bunny/trailer.mp4"
+    "https://media.w3.org/2010/05/sintel/trailer.mp4"
   ],
   Horror: [
-    "https://media.w3.org/2010/05/sintel/trailer.mp4",
-    "https://media.w3.org/2010/05/bunny/trailer.mp4"
+    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+    "https://media.w3.org/2010/05/sintel/trailer.mp4"
   ],
   Fantasy: [
     "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
     "https://media.w3.org/2010/05/sintel/trailer.mp4"
   ],
   Documentary: [
-    "https://media.w3.org/2010/05/bunny/trailer.mp4",
-    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"
+    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+    "https://media.w3.org/2010/05/sintel/trailer.mp4"
   ],
   Adventure: [
-    "https://media.w3.org/2010/05/sintel/trailer.mp4",
-    "https://media.w3.org/2010/05/bunny/trailer.mp4"
+    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+    "https://media.w3.org/2010/05/sintel/trailer.mp4"
   ],
   "Kids story": [
     "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
-    "https://media.w3.org/2010/05/bunny/trailer.mp4"
+    "https://media.w3.org/2010/05/sintel/trailer.mp4"
   ],
   Motivational: [
-    "https://media.w3.org/2010/05/sintel/trailer.mp4",
-    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"
+    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+    "https://media.w3.org/2010/05/sintel/trailer.mp4"
   ]
 };
 
 const AUDIO_URLS = [
-  "https://ia800501.us.archive.org/7/items/testmp3testfile/mpthreetest.mp3",
-  "https://assets.mixkit.co/music/preview/mixkit-tech-house-vibes-130.mp3",
-  "https://assets.mixkit.co/music/preview/mixkit-cinematic-mystery-539.mp3"
+  "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
+  "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3"
 ];
 
 const DEBUG_PREFIX = "[CineStory Media]";
@@ -314,7 +312,7 @@ async function validateMediaUrl(url, type = "video") {
   const expected = type === "audio" ? "audio/" : "video/";
 
   try {
-    const res = await fetch(cleaned, { method: "HEAD", redirect: "follow", cache: "no-store" });
+    const res = await fetch(cleaned, { method: type === "audio" ? "GET" : "HEAD", redirect: "follow", cache: "no-store" });
     const contentType = (res.headers.get("content-type") || "").toLowerCase();
 
     const result = {
