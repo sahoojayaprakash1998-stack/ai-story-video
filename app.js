@@ -729,22 +729,26 @@ async function playBackgroundMusic() {
 
   if (!bgAudio) return;
 
-  for (const url of AUDIO_URLS) {
-    const valid = await validateMediaUrl(url, "audio");
-    if (!valid.ok) continue;
+  const url = AUDIO_URLS[0];
 
-    bgAudio.src = valid.finalUrl || url;
-    bgAudio.volume = Number(elements.musicVolumeSlider?.value || 0.4);
-    bgAudio.load();
+  bgAudio.src = url;
+  bgAudio.volume = Number(elements.musicVolumeSlider?.value || 0.4);
+  bgAudio.load();
 
-    try {
-      await bgAudio.play();
-      logMedia("audio api response", { mode: "background-music", status: "playing", url: bgAudio.src });
-      return;
-    } catch (err) {
-      warnMedia("audio play blocked", { error: err.message });
-    }
+  try {
+    await bgAudio.play();
+    logMedia("audio api response", {
+      mode: "background-music",
+      status: "playing",
+      url: bgAudio.src
+    });
+  } catch (err) {
+    warnMedia("audio play blocked", {
+      error: err.message,
+      fallback: "music disabled, narration continues"
+    });
   }
+}
 
   warnMedia("audio fallback", { reason: "all background music URLs failed" });
 }
