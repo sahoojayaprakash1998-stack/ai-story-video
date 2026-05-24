@@ -163,7 +163,7 @@
         <div class="video-preview-container aspect-16-9" id="video-preview-container">
           
           <!-- Real video tag for premium moving scenes -->
-          <video class="preview-video" id="preview-video" loop muted playsinline></video>
+          <video class="preview-video" id="preview-video" loop muted playsinline crossorigin="anonymous" preload="auto"></video>
 
           <!-- Dynamic subtitles overlay -->
           <div class="subtitle-overlay">
@@ -341,5 +341,30 @@
 
   <!-- Application script -->
   <script src="app.js"></script>
+
+  <!-- FIX: Audio unlock interaction hint (auto-hides after first click) -->
+  <script>
+    // Show an audio unlock nudge if autoplay policy might block audio
+    window.addEventListener('DOMContentLoaded', () => {
+      let banner = null;
+      const showBanner = () => {
+        if (banner || document.querySelector('.audio-unlock-banner')) return;
+        banner = document.createElement('div');
+        banner.className = 'audio-unlock-banner';
+        banner.innerHTML = '🎵 Click anywhere to enable audio & music playback';
+        banner.addEventListener('click', () => { banner.remove(); banner = null; });
+        document.body.appendChild(banner);
+        setTimeout(() => { if (banner) { banner.remove(); banner = null; } }, 6000);
+      };
+      // Show banner after 2s if no interaction yet
+      setTimeout(() => {
+        if (!window._audioUnlocked) showBanner();
+      }, 2000);
+      document.addEventListener('click', () => {
+        window._audioUnlocked = true;
+        if (banner) { banner.remove(); banner = null; }
+      }, { once: true });
+    });
+  </script>
 </body>
 </html>

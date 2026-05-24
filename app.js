@@ -1,7 +1,8 @@
-// CineStory AI Studio - Core Logic
+// CineStory AI Studio - Core Logic (Fixed Version)
 
-// 1. Curated Premium Video Database (Moving Footage Loops)
-// These are high-quality, actual moving footage clips from public CDNs/media archives
+// ─────────────────────────────────────────────────────────────────
+// 1. Premium Video Catalog (Fallback CDN footage)
+// ─────────────────────────────────────────────────────────────────
 const PREMIUM_VIDEO_CATALOG = {
   "Cinematic": [
     "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
@@ -36,17 +37,17 @@ const PREMIUM_VIDEO_CATALOG = {
   ]
 };
 
-// 2. Pre-curated Soundtracks (Audio loop URLs)
+// 2. Pre-curated Soundtracks
 const PREMIUM_SOUNDTRACKS = {
-  "cinematic_epic": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
-  "cyberpunk_synth": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3",
-  "horror_ambient": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3",
+  "cinematic_epic":    "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
+  "cyberpunk_synth":   "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3",
+  "horror_ambient":    "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3",
   "fantasy_enchanted": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-10.mp3",
-  "lofi_chill": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-15.mp3",
-  "kids_happy": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-12.mp3"
+  "lofi_chill":        "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-15.mp3",
+  "kids_happy":        "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-12.mp3"
 };
 
-// 3. Multi-lingual Templates for Script Procedural Generator
+// 3. Multi-lingual Story Templates
 const MULTILINGUAL_TEMPLATES = {
   "English": {
     "titlePrefix": "Chronicles of",
@@ -201,12 +202,14 @@ const TRENDING_TEMPLATES = [
   }
 ];
 
+// ─────────────────────────────────────────────────────────────────
 // App Global State
+// ─────────────────────────────────────────────────────────────────
 let appState = {
   prompt: "",
   style: "Cinematic",
   language: "English",
-  duration: 30, // seconds
+  duration: 30,
   aspectRatio: "16:9",
   generatedTitle: "",
   characterBio: "",
@@ -218,39 +221,79 @@ let appState = {
   geminiKey: "",
   pexelsKey: "",
   watermark: "none",
-  history: []
+  history: [],
+  audioUnlocked: false  // FIX: tracks user-gesture audio unlock
 };
 
-// HTML Elements Cache
 let elements = {};
 
-// Audio variables
-let bgMusicAudio = new Audio();
-bgMusicAudio.loop = true;
+// ─────────────────────────────────────────────────────────────────
+// Audio System
+// FIX: Create bgMusicAudio lazily after user gesture to avoid
+// autoplay policy blocks
+// ─────────────────────────────────────────────────────────────────
+let bgMusicAudio = null;
 let activeUtterance = null;
-let wordBoundaries = [];
 let voiceVolume = 1;
 let musicVolume = 0.4;
-let ttsStartTimestamp = 0;
-let sceneStartTimes = []; // Tracks timestamps when each scene should start playing during whole playback
+let sceneStartTimes = [];
 let playerTimer = null;
-let elapsedTime = 0; // Current elapsed time in seconds
-let totalMovieDuration = 30; // Total duration in seconds
-let spokenScenes = new Set(); // Tracks which scenes have spoken in the current run
+let elapsedTime = 0;
+let totalMovieDuration = 30;
+let spokenScenes = new Set();
 let currentMediaLoadToken = 0;
+let lastTickerTime = 0;    // FIX: initialize to 0, set properly in startPlayback
+let dragStartIndex;
+let animationFrameId;
 
 const DEBUG_PREFIX = "[CineStory Media]";
 
-function debugMedia(label, payload = {}) {
-  console.log(`${DEBUG_PREFIX} ${label}`, payload);
+function debugMedia(label, payload = {}) { console.log(`${DEBUG_PREFIX} ${label}`, payload); }
+function warnMedia(label, payload = {})  { console.warn(`${DEBUG_PREFIX} ${label}`, payload); }
+function errorMedia(label, payload = {}) { console.error(`${DEBUG_PREFIX} ${label}`, payload); }
+
+// ─────────────────────────────────────────────────────────────────
+// FIX: Audio Unlock — must be called on a user gesture event
+// Browsers block audio until the user interacts
+// ─────────────────────────────────────────────────────────────────
+function unlockAudioContext() {
+  if (appState.audioUnlocked) return;
+  appState.audioUnlocked = true;
+
+  // Create bgMusicAudio on first gesture so autoplay policy is satisfied
+  if (!bgMusicAudio) {
+    bgMusicAudio = new Audio();
+    bgMusicAudio.loop = true;
+    bgMusicAudio.volume = musicVolume;
+    bgMusicAudio.preload = "auto";
+
+    bgMusicAudio.addEventListener("canplay", () =>
+      debugMedia("audio canplay", { src: bgMusicAudio.currentSrc || bgMusicAudio.src }));
+    bgMusicAudio.addEventListener("error", () =>
+      errorMedia("audio failed", { src: bgMusicAudio.currentSrc || bgMusicAudio.src, error: bgMusicAudio.error }));
+  }
+
+  // FIX: Pre-warm speech synthesis voices list (async, browser-dependent)
+  if ("speechSynthesis" in window) {
+    window.speechSynthesis.getVoices(); // trigger voice list load
+    window.speechSynthesis.onvoiceschanged = () => {
+      debugMedia("voices loaded", { count: window.speechSynthesis.getVoices().length });
+      // Re-populate voice selector if visible
+      if (document.getElementById("voice-select")) populateVoiceSelector();
+    };
+  }
+
+  debugMedia("audio unlocked", { triggered: "user-gesture" });
 }
 
-function warnMedia(label, payload = {}) {
-  console.warn(`${DEBUG_PREFIX} ${label}`, payload);
-}
-
-function errorMedia(label, payload = {}) {
-  console.error(`${DEBUG_PREFIX} ${label}`, payload);
+function getOrCreateBgAudio() {
+  if (!bgMusicAudio) {
+    bgMusicAudio = new Audio();
+    bgMusicAudio.loop = true;
+    bgMusicAudio.volume = musicVolume;
+    bgMusicAudio.preload = "auto";
+  }
+  return bgMusicAudio;
 }
 
 function getFallbackVideoUrl(style = appState.style, seed = 0) {
@@ -274,13 +317,14 @@ function ensureSceneMedia(scene, index) {
   return scene;
 }
 
-// Particle Background Animator
-let animationFrameId;
+// ─────────────────────────────────────────────────────────────────
+// Particle Background
+// ─────────────────────────────────────────────────────────────────
 function startParticleBackground() {
   const canvas = document.getElementById('particles-canvas');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
-  
+
   const resizeCanvas = () => {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
@@ -288,8 +332,7 @@ function startParticleBackground() {
   resizeCanvas();
   window.addEventListener('resize', resizeCanvas);
 
-  const particlesCount = 45;
-  const particles = Array.from({ length: particlesCount }, () => ({
+  const particles = Array.from({ length: 45 }, () => ({
     x: Math.random() * canvas.width,
     y: Math.random() * canvas.height,
     vx: (Math.random() - 0.5) * 0.2,
@@ -300,31 +343,28 @@ function startParticleBackground() {
 
   const drawParticles = () => {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    // Smooth background gradient based on theme
     const isDark = appState.theme === 'dark';
     ctx.fillStyle = isDark ? '#030307' : '#f0f0f5';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-
     particles.forEach(p => {
-      p.x += p.vx;
-      p.y += p.vy;
-
+      p.x += p.vx; p.y += p.vy;
       if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
       if (p.y < 0 || p.y > canvas.height) p.vy *= -1;
-
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-      ctx.fillStyle = isDark ? `rgba(139, 92, 246, ${p.opacity})` : `rgba(124, 58, 237, ${p.opacity * 0.5})`;
+      ctx.fillStyle = isDark
+        ? `rgba(139, 92, 246, ${p.opacity})`
+        : `rgba(124, 58, 237, ${p.opacity * 0.5})`;
       ctx.fill();
     });
-
     animationFrameId = requestAnimationFrame(drawParticles);
   };
   drawParticles();
 }
 
+// ─────────────────────────────────────────────────────────────────
 // Initialization
+// ─────────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
   cacheElements();
   loadConfigurations();
@@ -337,7 +377,6 @@ document.addEventListener("DOMContentLoaded", () => {
   updateMixerVolumes();
 });
 
-// Cache DOM Nodes
 function cacheElements() {
   elements = {
     logoBtn: document.getElementById('logo-btn'),
@@ -345,13 +384,9 @@ function cacheElements() {
     themeIcon: document.getElementById('theme-icon'),
     settingsBtn: document.getElementById('settings-btn'),
     historyBtn: document.getElementById('history-btn'),
-    
-    // Screens
     setupScreen: document.getElementById('setup-screen'),
     workspaceScreen: document.getElementById('workspace-screen'),
     mainLayout: document.getElementById('main-layout'),
-    
-    // Setup inputs
     promptInput: document.getElementById('prompt-input'),
     randomPromptBtn: document.getElementById('random-prompt-btn'),
     styleSelect: document.getElementById('style-select'),
@@ -360,16 +395,12 @@ function cacheElements() {
     durationSelector: document.getElementById('duration-selector'),
     generateBtn: document.getElementById('generate-btn'),
     templatesGrid: document.getElementById('templates-grid'),
-    
-    // Studio Panel UI
     tabContentArea: document.getElementById('tab-content-area'),
     timelineList: document.getElementById('timeline-list'),
     regenerateAllBtn: document.getElementById('regenerate-all-scenes-btn'),
     soundtrackSelect: document.getElementById('soundtrack-select'),
     exportVideoBtn: document.getElementById('export-video-btn'),
     returnSetupBtn: document.getElementById('return-setup-btn'),
-    
-    // Video Player
     videoPreviewContainer: document.getElementById('video-preview-container'),
     previewVideo: document.getElementById('preview-video'),
     subtitleText: document.getElementById('subtitle-text'),
@@ -378,8 +409,6 @@ function cacheElements() {
     renderStageDesc: document.getElementById('render-stage-desc'),
     progressFill: document.getElementById('progress-fill'),
     progressPct: document.getElementById('progress-pct'),
-    
-    // Player controls
     playPauseBtn: document.getElementById('play-pause-btn'),
     stopBtn: document.getElementById('stop-btn'),
     playerScrubber: document.getElementById('player-scrubber'),
@@ -387,8 +416,6 @@ function cacheElements() {
     timeDuration: document.getElementById('player-time-duration'),
     voiceVolumeSlider: document.getElementById('voice-volume-slider'),
     musicVolumeSlider: document.getElementById('music-volume-slider'),
-    
-    // Modals
     settingsModal: document.getElementById('settings-modal'),
     settingsClose: document.getElementById('settings-close-btn'),
     settingsCancel: document.getElementById('settings-cancel-btn'),
@@ -396,80 +423,78 @@ function cacheElements() {
     geminiKey: document.getElementById('gemini-key-input'),
     pexelsKey: document.getElementById('pexels-key-input'),
     watermarkSelect: document.getElementById('watermark-select'),
-    
     historyModal: document.getElementById('history-modal'),
     historyClose: document.getElementById('history-close-btn'),
     historyClear: document.getElementById('history-clear-btn'),
     historyDone: document.getElementById('history-done-btn'),
     historyListContainer: document.getElementById('history-list-container'),
-    
     toastContainer: document.getElementById('toast-container')
   };
 }
 
+// ─────────────────────────────────────────────────────────────────
+// FIX: Media debugging — attach events after video element is ready
+// ─────────────────────────────────────────────────────────────────
 function setupMediaDebugging() {
-  if (!elements.previewVideo) return;
-  elements.previewVideo.preload = "auto";
+  const vid = elements.previewVideo;
+  if (!vid) return;
+  vid.preload = "auto";
 
-  elements.previewVideo.addEventListener("loadstart", () => debugMedia("preview video loadstart", { src: elements.previewVideo.currentSrc || elements.previewVideo.src }));
-  elements.previewVideo.addEventListener("loadedmetadata", () => debugMedia("preview video metadata", {
-    src: elements.previewVideo.currentSrc,
-    duration: elements.previewVideo.duration,
-    videoWidth: elements.previewVideo.videoWidth,
-    videoHeight: elements.previewVideo.videoHeight
-  }));
-  elements.previewVideo.addEventListener("canplay", () => debugMedia("preview video canplay", { src: elements.previewVideo.currentSrc }));
-  elements.previewVideo.addEventListener("playing", () => debugMedia("playback state", { state: "video-playing", elapsedTime, activeSceneIndex: appState.activeSceneIndex }));
-  elements.previewVideo.addEventListener("pause", () => debugMedia("playback state", { state: "video-paused", elapsedTime, activeSceneIndex: appState.activeSceneIndex }));
-  elements.previewVideo.addEventListener("error", () => {
-    errorMedia("preview video failed", {
-      src: elements.previewVideo.currentSrc || elements.previewVideo.src,
-      error: elements.previewVideo.error
-    });
+  vid.addEventListener("loadstart",      () => debugMedia("video loadstart",      { src: vid.currentSrc || vid.src }));
+  vid.addEventListener("loadedmetadata", () => debugMedia("video metadata loaded", { src: vid.currentSrc, duration: vid.duration, w: vid.videoWidth, h: vid.videoHeight }));
+  vid.addEventListener("canplay",        () => debugMedia("video canplay",         { src: vid.currentSrc }));
+  vid.addEventListener("playing",        () => debugMedia("playback state",        { state: "video-playing", elapsedTime, scene: appState.activeSceneIndex }));
+  vid.addEventListener("pause",          () => debugMedia("playback state",        { state: "video-paused",  elapsedTime, scene: appState.activeSceneIndex }));
+  vid.addEventListener("stalled",        () => warnMedia("video stalled",          { src: vid.currentSrc }));
+  vid.addEventListener("waiting",        () => warnMedia("video buffering",        { src: vid.currentSrc }));
+  vid.addEventListener("error",          () => {
+    // FIX: Handle CORS errors gracefully — swap to non-CORS fallback
+    const errCode = vid.error ? vid.error.code : "unknown";
+    errorMedia("video error", { src: vid.currentSrc || vid.src, code: errCode, message: vid.error?.message });
+    if (appState.scenes.length && appState.scenes[appState.activeSceneIndex]) {
+      const fallback = getFallbackVideoUrl(appState.style, appState.activeSceneIndex);
+      if (vid.src !== fallback) {
+        warnMedia("applying fallback video", { fallback });
+        vid.src = fallback;
+        vid.load();
+      }
+    }
   });
-
-  bgMusicAudio.preload = "auto";
-  bgMusicAudio.addEventListener("canplay", () => debugMedia("audio canplay", { src: bgMusicAudio.currentSrc || bgMusicAudio.src }));
-  bgMusicAudio.addEventListener("error", () => errorMedia("audio failed", { src: bgMusicAudio.currentSrc || bgMusicAudio.src, error: bgMusicAudio.error }));
 }
 
-// Settings storage
 function loadConfigurations() {
   appState.theme = localStorage.getItem('studio-theme') || 'dark';
   appState.geminiKey = localStorage.getItem('studio-gemini-key') || '';
   appState.pexelsKey = localStorage.getItem('studio-pexels-key') || '';
   appState.watermark = localStorage.getItem('studio-watermark') || 'none';
-  
-  // Set theme attributes
   document.body.setAttribute('data-theme', appState.theme);
   updateThemeIcon();
-  
-  // Sync to elements
   if (elements.geminiKey) elements.geminiKey.value = appState.geminiKey;
   if (elements.pexelsKey) elements.pexelsKey.value = appState.pexelsKey;
   if (elements.watermarkSelect) elements.watermarkSelect.value = appState.watermark;
-  
-  // Load History
   const storedHistory = localStorage.getItem('studio-history');
   if (storedHistory) {
-    appState.history = JSON.parse(storedHistory);
+    try { appState.history = JSON.parse(storedHistory); } catch(e) { appState.history = []; }
   }
 }
 
 function updateThemeIcon() {
   if (elements.themeIcon) {
-    if (appState.theme === 'light') {
-      elements.themeIcon.setAttribute('data-feather', 'moon');
-    } else {
-      elements.themeIcon.setAttribute('data-feather', 'sun');
-    }
+    elements.themeIcon.setAttribute('data-feather', appState.theme === 'light' ? 'moon' : 'sun');
     feather.replace();
   }
 }
 
-// Core Handlers
+// ─────────────────────────────────────────────────────────────────
+// Event Listeners
+// FIX: All interactive elements call unlockAudioContext() on click
+// ─────────────────────────────────────────────────────────────────
 function setupEventListeners() {
-  // Theme Toggle
+  // Unlock audio on ANY user interaction
+  document.addEventListener('click',      unlockAudioContext, { once: false });
+  document.addEventListener('touchstart', unlockAudioContext, { once: false });
+  document.addEventListener('keydown',    unlockAudioContext, { once: false });
+
   elements.themeBtn.addEventListener('click', () => {
     appState.theme = appState.theme === 'dark' ? 'light' : 'dark';
     document.body.setAttribute('data-theme', appState.theme);
@@ -478,46 +503,31 @@ function setupEventListeners() {
     showToast(`Toggled ${appState.theme} mode`, 'success');
   });
 
-  // Logo Button resets view
   elements.logoBtn.addEventListener('click', () => {
     showScreen('setup');
     stopPlayback();
   });
 
-  // Settings Modal controls
-  elements.settingsBtn.addEventListener('click', () => {
-    elements.settingsModal.classList.remove('hidden');
-  });
-  elements.settingsClose.addEventListener('click', () => {
-    elements.settingsModal.classList.add('hidden');
-  });
-  elements.settingsCancel.addEventListener('click', () => {
-    elements.settingsModal.classList.add('hidden');
-  });
+  elements.settingsBtn.addEventListener('click',   () => elements.settingsModal.classList.remove('hidden'));
+  elements.settingsClose.addEventListener('click',  () => elements.settingsModal.classList.add('hidden'));
+  elements.settingsCancel.addEventListener('click', () => elements.settingsModal.classList.add('hidden'));
   elements.settingsSave.addEventListener('click', () => {
     appState.geminiKey = elements.geminiKey.value.trim();
     appState.pexelsKey = elements.pexelsKey.value.trim();
     appState.watermark = elements.watermarkSelect.value;
-    
     localStorage.setItem('studio-gemini-key', appState.geminiKey);
     localStorage.setItem('studio-pexels-key', appState.pexelsKey);
     localStorage.setItem('studio-watermark', appState.watermark);
-    
     elements.settingsModal.classList.add('hidden');
     showToast("Configurations saved successfully", "success");
   });
 
-  // Project History modal controls
   elements.historyBtn.addEventListener('click', () => {
     renderHistoryModalList();
     elements.historyModal.classList.remove('hidden');
   });
-  elements.historyClose.addEventListener('click', () => {
-    elements.historyModal.classList.add('hidden');
-  });
-  elements.historyDone.addEventListener('click', () => {
-    elements.historyModal.classList.add('hidden');
-  });
+  elements.historyClose.addEventListener('click', () => elements.historyModal.classList.add('hidden'));
+  elements.historyDone.addEventListener('click',  () => elements.historyModal.classList.add('hidden'));
   elements.historyClear.addEventListener('click', () => {
     appState.history = [];
     localStorage.removeItem('studio-history');
@@ -525,8 +535,6 @@ function setupEventListeners() {
     showToast("Workspace history cleared", "success");
   });
 
-  // Setup form parameters triggers
-  // Aspect Ratio selection
   elements.ratioSelector.querySelectorAll('.selector-option').forEach(opt => {
     opt.addEventListener('click', () => {
       elements.ratioSelector.querySelector('.active').classList.remove('active');
@@ -535,7 +543,6 @@ function setupEventListeners() {
     });
   });
 
-  // Duration selection
   elements.durationSelector.querySelectorAll('.selector-option').forEach(opt => {
     opt.addEventListener('click', () => {
       elements.durationSelector.querySelector('.active').classList.remove('active');
@@ -544,7 +551,6 @@ function setupEventListeners() {
     });
   });
 
-  // Prompt suggestions click action
   document.querySelectorAll('.suggestion-pill').forEach(pill => {
     pill.addEventListener('click', () => {
       elements.promptInput.value = pill.dataset.prompt;
@@ -552,7 +558,6 @@ function setupEventListeners() {
     });
   });
 
-  // Surprise me randomizer
   elements.randomPromptBtn.addEventListener('click', () => {
     const randomTemplates = [
       "A golden steam-powered airship sailing through neon pink clouds over a mechanical floating continent",
@@ -565,8 +570,8 @@ function setupEventListeners() {
     showToast("Cinematic idea generated", "success");
   });
 
-  // "Generate" Main Action Trigger
   elements.generateBtn.addEventListener('click', () => {
+    unlockAudioContext(); // FIX: ensure audio unlocked on generate
     const promptText = elements.promptInput.value.trim();
     if (!promptText) {
       showToast("Please write a story prompt first!", "error");
@@ -575,19 +580,17 @@ function setupEventListeners() {
     appState.prompt = promptText;
     appState.style = elements.styleSelect.value;
     appState.language = elements.languageSelect.value;
-    
-    // Start generating
     startGenerationPipeline();
   });
 
-  // Workspace actions
   elements.returnSetupBtn.addEventListener('click', () => {
     showScreen('setup');
     stopPlayback();
   });
 
-  // Player controls interaction
+  // FIX: Play/Pause button — unlock audio, handle promise
   elements.playPauseBtn.addEventListener('click', () => {
+    unlockAudioContext();
     if (appState.isPlaying) {
       pausePlayback();
     } else {
@@ -596,6 +599,7 @@ function setupEventListeners() {
   });
 
   elements.stopBtn.addEventListener('click', () => {
+    unlockAudioContext();
     stopPlayback();
   });
 
@@ -603,31 +607,26 @@ function setupEventListeners() {
     updatePlaybackScrub(parseFloat(e.target.value));
   });
 
-  // Mixers volume inputs
   elements.voiceVolumeSlider.addEventListener('input', (e) => {
     voiceVolume = parseFloat(e.target.value);
-    if (activeUtterance) {
+    // Restart current narration with new volume
+    if (window.speechSynthesis.speaking) {
       window.speechSynthesis.cancel();
-      // Restart the current scene narration with the new volume.
       spokenScenes.delete(appState.activeSceneIndex);
-      speakNarrationSegment(appState.scenes[appState.activeSceneIndex]?.narration, appState.activeSceneIndex);
     }
   });
 
   elements.musicVolumeSlider.addEventListener('input', (e) => {
     musicVolume = parseFloat(e.target.value);
-    bgMusicAudio.volume = musicVolume;
+    const audio = getOrCreateBgAudio();
+    audio.volume = musicVolume;
   });
 
-  // Soundtrack selector
   elements.soundtrackSelect.addEventListener('change', (e) => {
     appState.soundtrack = e.target.value;
-    if (appState.isPlaying) {
-      playBackgroundMusic();
-    }
+    if (appState.isPlaying) playBackgroundMusic();
   });
 
-  // Global resync visuals
   elements.regenerateAllBtn.addEventListener('click', async () => {
     showToast("Resyncing moving footage assets...", "success");
     for (let i = 0; i < appState.scenes.length; i++) {
@@ -637,13 +636,15 @@ function setupEventListeners() {
     loadSceneVideo(appState.activeSceneIndex, { autoplay: appState.isPlaying, reason: "resync-all" });
   });
 
-  // Export video trigger
   elements.exportVideoBtn.addEventListener('click', () => {
+    unlockAudioContext();
     triggerVideoExport();
   });
 }
 
-// Layout Screen Switcher
+// ─────────────────────────────────────────────────────────────────
+// Screen Switcher
+// ─────────────────────────────────────────────────────────────────
 function showScreen(screen) {
   if (screen === 'setup') {
     elements.setupScreen.classList.remove('hidden');
@@ -651,34 +652,31 @@ function showScreen(screen) {
   } else {
     elements.setupScreen.classList.add('hidden');
     elements.workspaceScreen.classList.remove('hidden');
-    
-    // Update player container aspect ratio display
     elements.videoPreviewContainer.className = "video-preview-container";
-    if (appState.aspectRatio === "16:9") {
-      elements.videoPreviewContainer.classList.add("aspect-16-9");
-    } else if (appState.aspectRatio === "9:16") {
-      elements.videoPreviewContainer.classList.add("aspect-9-16");
-    } else {
-      elements.videoPreviewContainer.classList.add("aspect-1-1");
-    }
+    if (appState.aspectRatio === "16:9")      elements.videoPreviewContainer.classList.add("aspect-16-9");
+    else if (appState.aspectRatio === "9:16") elements.videoPreviewContainer.classList.add("aspect-9-16");
+    else                                      elements.videoPreviewContainer.classList.add("aspect-1-1");
   }
 }
 
-// Toast Alert Manager
+// ─────────────────────────────────────────────────────────────────
+// Toast Notifications
+// ─────────────────────────────────────────────────────────────────
 function showToast(message, type = 'success') {
   const toast = document.createElement('div');
   toast.className = `toast toast-${type}`;
   toast.innerHTML = `<i data-feather="${type === 'success' ? 'check-circle' : 'alert-circle'}"></i> <span>${message}</span>`;
   elements.toastContainer.appendChild(toast);
   feather.replace();
-  
   setTimeout(() => {
     toast.style.animation = "slide-in 0.3s ease reverse";
     setTimeout(() => toast.remove(), 300);
   }, 3500);
 }
 
-// Render presets
+// ─────────────────────────────────────────────────────────────────
+// Trending Templates
+// ─────────────────────────────────────────────────────────────────
 function renderTrendingTemplates() {
   elements.templatesGrid.innerHTML = "";
   TRENDING_TEMPLATES.forEach(tpl => {
@@ -686,7 +684,7 @@ function renderTrendingTemplates() {
     card.className = "template-card";
     card.innerHTML = `
       <div class="template-media">
-        <video class="template-video" src="${tpl.video}" muted loop playsinline></video>
+        <video class="template-video" src="${tpl.video}" muted loop playsinline preload="metadata" crossorigin="anonymous"></video>
         <span class="template-badge">${tpl.style}</span>
       </div>
       <div class="template-info">
@@ -694,50 +692,46 @@ function renderTrendingTemplates() {
         <p class="template-prompt-desc">${tpl.prompt}</p>
       </div>
     `;
-    
-    // Play video on hover
     const video = card.querySelector('video');
-    card.addEventListener('mouseenter', () => video.play());
-    card.addEventListener('mouseleave', () => {
-      video.pause();
-      video.currentTime = 0;
-    });
-
+    card.addEventListener('mouseenter', () => video.play().catch(() => {}));
+    card.addEventListener('mouseleave', () => { video.pause(); video.currentTime = 0; });
     card.addEventListener('click', () => {
       elements.promptInput.value = tpl.prompt;
       elements.styleSelect.value = tpl.style;
       elements.languageSelect.value = tpl.lang;
       showToast(`Loaded template: "${tpl.title}"`, "success");
-      // Scroll to console top smoothly
       elements.promptInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
     });
-
     elements.templatesGrid.appendChild(card);
   });
 }
 
-// ----------------------------------------------------
-// 3. Script & Cinematic Breakdown Generator Engine
-// ----------------------------------------------------
+// ─────────────────────────────────────────────────────────────────
+// Generation Pipeline
+// ─────────────────────────────────────────────────────────────────
 async function startGenerationPipeline() {
   showScreen('workspace');
   elements.renderOverlay.classList.remove('hidden');
   stopPlayback();
 
   try {
-    // Stage 1: Generate Story Structure
     updateProgress(0, 15, "Initializing AI Story Engine...", "Structuring script guidelines and translating parameters.");
-    await delay(1000);
+    await delay(800);
 
     updateProgress(1, 40, "Writing screenplay scripts...", `Generating title, character bios and scene cards in ${appState.language}.`);
-    
+
     let movieData;
     if (appState.geminiKey) {
-      movieData = await generateStoryWithGemini();
+      try {
+        movieData = await generateStoryWithGemini();
+      } catch (geminiError) {
+        warnMedia("Gemini failed, falling back", { error: geminiError.message });
+        movieData = await generateStoryProcedurally();
+      }
     } else {
       movieData = await generateStoryProcedurally();
     }
-    debugMedia("video api response", movieData);
+    debugMedia("video api response", { title: movieData.title, sceneCount: movieData.scenes?.length });
 
     appState.generatedTitle = movieData.title;
     appState.characterBio = movieData.characterBio;
@@ -748,42 +742,42 @@ async function startGenerationPipeline() {
       keywords: Array.isArray(scene.keywords) ? scene.keywords : []
     }));
 
-    // Stage 2: Sourcing Video Footage
-    updateProgress(2, 75, "Connecting to Stock footage APIs...", "Searching high-definition actual moving scenes (no slideshows).");
-    
+    updateProgress(2, 60, "Connecting to Stock footage APIs...", "Searching high-definition actual moving scenes.");
+
     for (let i = 0; i < appState.scenes.length; i++) {
       const scene = appState.scenes[i];
-      updateProgress(2, 75 + Math.floor((i / appState.scenes.length) * 20), "Compiling scene visuals...", `Matching real video sequence for Scene ${i + 1}: ${scene.keywords.slice(0, 3).join(', ')}`);
+      updateProgress(2, 60 + Math.floor((i / appState.scenes.length) * 30),
+        "Compiling scene visuals...", `Matching real video for Scene ${i + 1}`);
       scene.videoUrl = await searchVideoAsset(scene.prompt, appState.style);
       ensureSceneMedia(scene, i);
-      debugMedia("generated urls", { scene: i + 1, videoUrl: scene.videoUrl, audioUrl: scene.audioUrl, audioStatus: scene.audioStatus });
+      debugMedia("generated urls", { scene: i + 1, videoUrl: scene.videoUrl, audioStatus: scene.audioStatus });
     }
 
-    // Stage 3: Dynamic Audio Prep
-    updateProgress(3, 100, "Synthesizing cinematic audio mix...", "Aligning text-to-speech timelines, music and subtitle overlays.");
+    updateProgress(3, 100, "Synthesizing cinematic audio mix...", "Aligning narration, music and subtitle overlays.");
     debugMedia("audio api response", {
       mode: "browser-speech-synthesis",
       soundtrack: appState.soundtrack,
       soundtrackUrl: PREMIUM_SOUNDTRACKS[appState.soundtrack],
-      scenes: appState.scenes.map((scene, index) => ({ scene: index + 1, narrationLength: scene.narration.length, audioStatus: scene.audioStatus }))
+      scenes: appState.scenes.map((s, i) => ({ scene: i + 1, narrationLen: s.narration.length, audioStatus: s.audioStatus }))
     });
-    await delay(1000);
+    await delay(700);
 
-    // Save project in history
     saveProjectToHistory();
 
-    // Render workspace contents
+    // FIX: Hide overlay BEFORE loading scene so video is visible
     elements.renderOverlay.classList.add('hidden');
+
     renderWorkspaceTabs('script');
     updateTimelineList();
     initializeTimelineDurations();
-    
-    // Load first scene
+
+    // FIX: Load first scene and force video to show
     await loadSceneVideo(0, { autoplay: false, reason: "generation-complete" });
+
     showToast("AI Cinema Story successfully compiled!", "success");
 
   } catch (error) {
-    errorMedia("generation failed", error);
+    errorMedia("generation failed", { message: error.message, stack: error.stack });
     elements.renderOverlay.classList.add('hidden');
     showToast("Generation failed: " + error.message, "error");
     showScreen('setup');
@@ -795,62 +789,47 @@ function updateProgress(stepNum, pct, title, desc) {
   elements.renderStageDesc.textContent = desc;
   elements.progressFill.style.width = `${pct}%`;
   elements.progressPct.textContent = `${pct}%`;
-
-  // Set active stepper pipeline indicator
   for (let i = 0; i <= 3; i++) {
     const node = document.getElementById(`step-${i}`);
-    const connector = document.getElementById(`fill-${i}`);
-    if (i < stepNum) {
-      node.className = "pipeline-node completed";
-      if (connector) connector.style.width = "100%";
-    } else if (i === stepNum) {
-      node.className = "pipeline-node active";
-      if (connector) connector.style.width = "50%";
-    } else {
-      node.className = "pipeline-node";
-      if (connector) connector.style.width = "0%";
-    }
+    const fill = document.getElementById(`fill-${i}`);
+    if (i < stepNum)       { node.className = "pipeline-node completed"; if (fill) fill.style.width = "100%"; }
+    else if (i === stepNum) { node.className = "pipeline-node active";    if (fill) fill.style.width = "50%"; }
+    else                    { node.className = "pipeline-node";           if (fill) fill.style.width = "0%"; }
   }
 }
 
-// Procedural Script Generator (Runs fully local, zero-dependency)
+// ─────────────────────────────────────────────────────────────────
+// Procedural Story Generator
+// ─────────────────────────────────────────────────────────────────
 async function generateStoryProcedurally() {
-  await delay(1500); // Simulate API latency
-  
+  await delay(1200);
   const style = appState.style;
   const lang = appState.language;
   const promptText = appState.prompt;
   const template = MULTILINGUAL_TEMPLATES[lang] || MULTILINGUAL_TEMPLATES["English"];
-  
-  // Extract keywords from user prompt to customize the story
   const titleSeed = promptText.split(" ").slice(0, 3).join(" ") || "Unknown Path";
-  const title = `${template.titlePrefix} ${titleSeed} (${template.titleSuffix})`;
-  
-  // Scene count based on duration settings
+  const title = `${template.titlePrefix} ${titleSeed}`;
+
   const sceneCount = appState.duration <= 30 ? 3 : (appState.duration <= 60 ? 5 : 8);
-  const scenes = [];
-  
+
   const moods = {
-    "Cinematic": { voice: "dramatic", music: "cinematic_epic" },
-    "Realistic": { voice: "natural", music: "lofi_chill" },
-    "Anime": { voice: "whimsical", music: "fantasy_enchanted" },
-    "Horror": { voice: "eerie", music: "horror_ambient" },
-    "Fantasy": { voice: "mystic", music: "fantasy_enchanted" },
-    "Documentary": { voice: "informative", music: "lofi_chill" },
-    "Adventure": { voice: "epic", music: "cinematic_epic" },
-    "Kids story": { voice: "cheerful", music: "kids_happy" },
-    "Motivational": { voice: "inspiring", music: "cinematic_epic" }
+    "Cinematic":   { music: "cinematic_epic" },
+    "Realistic":   { music: "lofi_chill" },
+    "Anime":       { music: "fantasy_enchanted" },
+    "Horror":      { music: "horror_ambient" },
+    "Fantasy":     { music: "fantasy_enchanted" },
+    "Documentary": { music: "lofi_chill" },
+    "Adventure":   { music: "cinematic_epic" },
+    "Kids story":  { music: "kids_happy" },
+    "Motivational":{ music: "cinematic_epic" }
   };
   const currentMood = moods[style] || moods["Cinematic"];
   appState.soundtrack = currentMood.music;
   if (elements.soundtrackSelect) elements.soundtrackSelect.value = currentMood.music;
 
-  // Generate sequence of prompts and narratives dynamically
+  const scenes = [];
   for (let i = 0; i < sceneCount; i++) {
-    let subPrompt = "";
-    let narrationText = "";
-    let keywords = [];
-
+    let subPrompt, narrationText, keywords;
     if (i === 0) {
       subPrompt = `Cinematic establishing shot showing: ${promptText}. Natural motion, panning camera.`;
       narrationText = template.intro;
@@ -868,182 +847,126 @@ async function generateStoryProcedurally() {
       narrationText = template.conflict;
       keywords = ["camera movement", "nature", "epic landscape"];
     }
-
     scenes.push({
       sceneId: i,
       prompt: subPrompt,
       narration: narrationText,
       duration: Math.ceil(appState.duration / sceneCount),
       videoUrl: "",
-      keywords: keywords
+      keywords
     });
   }
-
-  return {
-    title: title,
-    characterBio: template.charBio,
-    scenes: scenes
-  };
+  return { title, characterBio: template.charBio, scenes };
 }
 
-// LLM Gemini Generator
+// ─────────────────────────────────────────────────────────────────
+// Gemini Story Generator
+// ─────────────────────────────────────────────────────────────────
 async function generateStoryWithGemini() {
-  const promptText = appState.prompt;
-  const style = appState.style;
-  const lang = appState.language;
-  const duration = appState.duration;
-  
+  const { prompt: promptText, style, language: lang, duration } = appState;
   const sceneCount = duration <= 30 ? 3 : (duration <= 60 ? 5 : 8);
-  
   const systemInstruction = `You are a professional movie studio screenplay writer. Break down the user prompt into a story format.
-Generate a JSON output matching this structure:
+Generate JSON matching:
 {
   "title": "Story Title",
   "characterBio": "Brief description of the main character",
   "scenes": [
-    {
-      "prompt": "Detailed cinematic prompt for video generation. Focus on actions, camera angles, lighting, and movement. MUST request real moving footage, no static pictures.",
-      "narration": "Full narration text to be spoken in the specified language (${lang}). Ensure it feels dramatic and matching the script segment.",
-      "duration": 6,
-      "keywords": ["list", "of", "search", "keywords"]
-    }
+    { "prompt": "Detailed cinematic prompt for video generation", "narration": "Full narration text in ${lang}", "duration": 6, "keywords": ["list","of","keywords"] }
   ]
 }
-Ensure there are exactly ${sceneCount} scenes. Output ONLY valid JSON inside markdown block \`\`\`json.`;
+Ensure exactly ${sceneCount} scenes. Output ONLY valid JSON inside a \`\`\`json block.`;
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${appState.geminiKey}`;
-  
   const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      contents: [{
-        parts: [{ text: `${systemInstruction}\n\nPrompt: ${promptText}\nStyle: ${style}\nLanguage: ${lang}` }]
-      }]
+      contents: [{ parts: [{ text: `${systemInstruction}\n\nPrompt: ${promptText}\nStyle: ${style}\nLanguage: ${lang}` }] }]
     })
   });
-
-  if (!response.ok) {
-    throw new Error("Gemini request failed. Checking fallback options.");
-  }
-
+  if (!response.ok) throw new Error(`Gemini API error: ${response.status}`);
   const resJson = await response.json();
-  const rawText = resJson.candidates[0].content.parts[0].text;
-  
-  // Parse JSON from text markdown fence
+  debugMedia("video api response", { provider: "gemini", status: response.status });
+  const rawText = resJson.candidates?.[0]?.content?.parts?.[0]?.text || "";
   const jsonMatch = rawText.match(/```json\s*([\s\S]*?)\s*```/) || rawText.match(/({[\s\S]*})/);
   if (jsonMatch) {
     const data = JSON.parse(jsonMatch[1]);
-    // Validate schema
-    if (data.title && Array.isArray(data.scenes)) {
-      return data;
-    }
+    if (data.title && Array.isArray(data.scenes)) return data;
   }
-  
-  throw new Error("Unable to parse script structure. Falling back to local script generator.");
+  throw new Error("Unable to parse Gemini script structure.");
 }
 
-// ----------------------------------------------------
-// 4. Video Sourcing & Dynamic Search API Engine
-// ----------------------------------------------------
+// ─────────────────────────────────────────────────────────────────
+// Video Asset Search
+// ─────────────────────────────────────────────────────────────────
 async function searchVideoAsset(scenePrompt, style) {
-  // Try custom Pexels API key if configured
   if (appState.pexelsKey) {
     try {
       const keywords = scenePrompt.replace(/[^\w\s]/gi, '').split(" ").slice(0, 3).join(" ");
       const url = `https://api.pexels.com/videos/search?query=${encodeURIComponent(keywords)}&per_page=5&orientation=landscape`;
-      debugMedia("video request", { provider: "pexels", url, keywords });
-      
-      const response = await fetch(url, {
-        headers: { "Authorization": appState.pexelsKey }
-      });
+      debugMedia("video request", { provider: "pexels", keywords });
+      const response = await fetch(url, { headers: { "Authorization": appState.pexelsKey } });
       debugMedia("video api response", { provider: "pexels", status: response.status, ok: response.ok });
-      
       if (response.ok) {
         const data = await response.json();
-        if (data.videos && data.videos.length > 0) {
-          // Select random matching video from list
-          const selectedVideoObj = data.videos[Math.floor(Math.random() * data.videos.length)];
-          // Find high-quality SD or HD MP4 link
-          const files = selectedVideoObj.video_files;
-          const match = files.find(f => f.quality === 'hd' || f.quality === 'sd') || files[0];
-          if (match && match.link) {
-            debugMedia("generated urls", { provider: "pexels", videoUrl: match.link, mimeType: match.file_type || "video/mp4" });
+        if (data.videos?.length > 0) {
+          const selected = data.videos[Math.floor(Math.random() * data.videos.length)];
+          const match = selected.video_files.find(f => f.quality === 'hd' || f.quality === 'sd') || selected.video_files[0];
+          if (match?.link) {
+            debugMedia("generated urls", { provider: "pexels", videoUrl: match.link });
             return match.link;
           }
         }
       }
     } catch (e) {
-      warnMedia("failed request", { provider: "pexels", error: e });
+      warnMedia("failed request", { provider: "pexels", error: e.message });
     }
   }
-
-  // Fallback to local high-quality moving video collections matching styles
   const fallback = getFallbackVideoUrl(style, Math.floor(Math.random() * 1000));
-  debugMedia("generated urls", { provider: "fallback-catalog", videoUrl: fallback, mimeType: "video/mp4" });
+  debugMedia("generated urls", { provider: "fallback-catalog", videoUrl: fallback });
   return fallback;
 }
 
-// ----------------------------------------------------
-// 5. Script & Workspace UI Rendering
-// ----------------------------------------------------
+// ─────────────────────────────────────────────────────────────────
+// Workspace UI
+// ─────────────────────────────────────────────────────────────────
 function renderWorkspaceTabs(activeTab) {
-  // Tabs click triggers
   elements.tabContentArea.innerHTML = "";
-  
-  const tabs = elements.workspaceScreen.querySelectorAll('.sidebar-tab');
-  tabs.forEach(tab => {
-    if (tab.dataset.tab === activeTab) {
-      tab.classList.add('active');
-    } else {
-      tab.classList.remove('active');
-    }
+  elements.workspaceScreen.querySelectorAll('.sidebar-tab').forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.tab === activeTab);
   });
 
   if (activeTab === 'script') {
     elements.tabContentArea.innerHTML = `
       <div class="sidebar-section">
         <label class="option-label">Film Title</label>
-        <input type="text" class="sidebar-input" id="edit-story-title" value="${appState.generatedTitle}">
+        <input type="text" class="sidebar-input" id="edit-story-title" value="${escapeHtml(appState.generatedTitle)}">
       </div>
       <div class="sidebar-section">
         <label class="option-label">Scene Breakdown</label>
-        <div style="display:flex; flex-direction:column; gap:10px;" id="scenes-editor-list">
-          <!-- Scenes edit textareas will be populated here -->
-        </div>
+        <div style="display:flex; flex-direction:column; gap:10px;" id="scenes-editor-list"></div>
       </div>
     `;
-
-    // Render each scene card edit boxes
     const editorList = document.getElementById('scenes-editor-list');
     appState.scenes.forEach((scene, index) => {
       const box = document.createElement('div');
-      box.style.borderLeft = "2px solid var(--accent-purple)";
-      box.style.paddingLeft = "8px";
+      box.style.cssText = "border-left: 2px solid var(--accent-purple); padding-left: 8px;";
       box.innerHTML = `
         <span class="scene-num" style="display:block; margin-bottom:4px;">Scene ${index + 1} Visual Prompt</span>
-        <textarea class="sidebar-textarea" style="height:60px; font-size:0.8rem;" data-index="${index}" id="edit-prompt-${index}">${scene.prompt}</textarea>
+        <textarea class="sidebar-textarea" style="height:60px; font-size:0.8rem;" data-index="${index}" id="edit-prompt-${index}">${escapeHtml(scene.prompt)}</textarea>
         <span class="scene-num" style="color:var(--text-secondary); display:block; margin: 4px 0;">Voice Narration</span>
-        <textarea class="sidebar-textarea" style="height:60px; font-size:0.8rem;" data-index="${index}" id="edit-narration-${index}">${scene.narration}</textarea>
+        <textarea class="sidebar-textarea" style="height:60px; font-size:0.8rem;" data-index="${index}" id="edit-narration-${index}">${escapeHtml(scene.narration)}</textarea>
       `;
-
-      // Save input changes on the fly
       box.querySelectorAll('textarea').forEach(tx => {
         tx.addEventListener('input', (e) => {
           const idx = parseInt(e.target.dataset.index);
-          if (e.target.id.includes('prompt')) {
-            appState.scenes[idx].prompt = e.target.value;
-          } else {
-            appState.scenes[idx].narration = e.target.value;
-          }
+          if (e.target.id.includes('prompt')) appState.scenes[idx].prompt = e.target.value;
+          else appState.scenes[idx].narration = e.target.value;
           saveProjectToHistory();
         });
       });
-
       editorList.appendChild(box);
     });
-
-    // Save title changes on dynamic input
     document.getElementById('edit-story-title').addEventListener('input', (e) => {
       appState.generatedTitle = e.target.value;
       saveProjectToHistory();
@@ -1053,28 +976,23 @@ function renderWorkspaceTabs(activeTab) {
     elements.tabContentArea.innerHTML = `
       <div class="sidebar-section">
         <label class="option-label">Character Details</label>
-        <textarea class="sidebar-textarea" style="height:150px;" id="edit-char-bio">${appState.characterBio}</textarea>
+        <textarea class="sidebar-textarea" style="height:150px;" id="edit-char-bio">${escapeHtml(appState.characterBio)}</textarea>
       </div>
       <div class="sidebar-section">
         <label class="option-label">Style Customizations</label>
-        <p style="font-size:0.8rem; line-height:1.4;">Active Style: <strong>${appState.style}</strong></p>
-        <p style="font-size:0.75rem; color:var(--text-tertiary);">Ensure character outfits, physical structures, and expressions remain uniform throughout the video descriptions.</p>
+        <p style="font-size:0.8rem; line-height:1.4;">Active Style: <strong>${escapeHtml(appState.style)}</strong></p>
       </div>
     `;
-
     document.getElementById('edit-char-bio').addEventListener('input', (e) => {
       appState.characterBio = e.target.value;
       saveProjectToHistory();
     });
 
   } else {
-    // Voice settings tab
     elements.tabContentArea.innerHTML = `
       <div class="sidebar-section">
-        <label class="option-label">Narrator Voice Voice</label>
-        <select class="select-custom" id="voice-select" style="width:100%;">
-          <!-- Populated by web speech voices -->
-        </select>
+        <label class="option-label">Narrator Voice</label>
+        <select class="select-custom" id="voice-select" style="width:100%;"></select>
       </div>
       <div class="sidebar-section">
         <label class="option-label">Narration Pitch</label>
@@ -1085,56 +1003,74 @@ function renderWorkspaceTabs(activeTab) {
         <input type="range" class="scrubber-slider" id="voice-rate" min="0.5" max="1.5" step="0.1" value="0.95">
       </div>
     `;
-
     populateVoiceSelector();
   }
 
-  // Setup tab listeners
+  // Re-attach tab click handlers (clone to remove dupes)
   elements.workspaceScreen.querySelectorAll('.sidebar-tab').forEach(t => {
-    t.replaceWith(t.cloneNode(true)); // remove duplicate listeners
+    const clone = t.cloneNode(true);
+    t.parentNode.replaceChild(clone, t);
   });
   elements.workspaceScreen.querySelectorAll('.sidebar-tab').forEach(t => {
-    t.addEventListener('click', (e) => {
-      renderWorkspaceTabs(e.target.dataset.tab);
-    });
+    t.addEventListener('click', () => renderWorkspaceTabs(t.dataset.tab));
   });
 }
 
+// FIX: Safely escape HTML to prevent XSS in textareas
+function escapeHtml(str) {
+  return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ─────────────────────────────────────────────────────────────────
+// FIX: Voice selector — wait for voices to be ready
+// ─────────────────────────────────────────────────────────────────
 function populateVoiceSelector() {
   const sel = document.getElementById('voice-select');
   if (!sel) return;
-  sel.innerHTML = "";
-  
-  const voices = window.speechSynthesis.getVoices();
-  const selectedLangCode = getLanguageCode(appState.language);
-  
-  // Filter voices that support the selected language
-  let filteredVoices = voices.filter(v => v.lang.startsWith(selectedLangCode));
-  if (filteredVoices.length === 0) {
-    // fallback to default voices
-    filteredVoices = voices;
-  }
 
-  filteredVoices.forEach(v => {
-    const opt = document.createElement('option');
-    opt.value = v.name;
-    opt.textContent = `${v.name} (${v.lang})`;
-    sel.appendChild(opt);
-  });
+  const fill = () => {
+    const voices = window.speechSynthesis.getVoices();
+    const selectedLangCode = getLanguageCode(appState.language);
+    let filtered = voices.filter(v => v.lang.startsWith(selectedLangCode));
+    if (filtered.length === 0) filtered = voices;
+
+    sel.innerHTML = '';
+    if (filtered.length === 0) {
+      const opt = document.createElement('option');
+      opt.textContent = "Browser default voice";
+      sel.appendChild(opt);
+      return;
+    }
+    filtered.forEach(v => {
+      const opt = document.createElement('option');
+      opt.value = v.name;
+      opt.textContent = `${v.name} (${v.lang})`;
+      sel.appendChild(opt);
+    });
+    debugMedia("audio api response", { mode: "voice-list-loaded", count: filtered.length, lang: selectedLangCode });
+  };
+
+  // FIX: getVoices() may be empty on first call — listen for the event
+  const voices = window.speechSynthesis.getVoices();
+  if (voices.length > 0) {
+    fill();
+  } else {
+    window.speechSynthesis.onvoiceschanged = fill;
+  }
 }
 
 function getLanguageCode(lang) {
   const mapping = {
-    "English": "en", "Hindi": "hi", "Odia": "or", "Bengali": "bn", "Telugu": "te",
-    "Tamil": "ta", "Malayalam": "ml", "Kannada": "kn", "Punjabi": "pa", "Marathi": "mr",
-    "Gujarati": "gu", "Assamese": "as", "Urdu": "ur", "Sanskrit": "sa"
+    "English":"en","Hindi":"hi","Odia":"or","Bengali":"bn","Telugu":"te",
+    "Tamil":"ta","Malayalam":"ml","Kannada":"kn","Punjabi":"pa","Marathi":"mr",
+    "Gujarati":"gu","Assamese":"as","Urdu":"ur","Sanskrit":"sa"
   };
   return mapping[lang] || "en";
 }
 
-// ----------------------------------------------------
-// 6. Timeline Card Manager
-// ----------------------------------------------------
+// ─────────────────────────────────────────────────────────────────
+// Timeline Cards
+// ─────────────────────────────────────────────────────────────────
 function updateTimelineList() {
   elements.timelineList.innerHTML = "";
   appState.scenes.forEach((scene, index) => {
@@ -1150,9 +1086,9 @@ function updateTimelineList() {
       </div>
       <div class="timeline-card-body">
         <div class="scene-thumbnail-container">
-          <video class="scene-thumbnail-video" src="${scene.videoUrl}" muted playsinline preload="metadata"></video>
+          <video class="scene-thumbnail-video" src="${scene.videoUrl}" muted playsinline preload="metadata" crossorigin="anonymous"></video>
         </div>
-        <div class="scene-text-preview">${scene.prompt}</div>
+        <div class="scene-text-preview">${escapeHtml(scene.prompt)}</div>
       </div>
       <div class="timeline-card-actions">
         <button class="btn btn-secondary btn-card-action" data-action="regen" data-index="${index}">
@@ -1160,17 +1096,12 @@ function updateTimelineList() {
         </button>
       </div>
     `;
-
-    // Click triggers play scene
     card.addEventListener('click', (e) => {
-      // Avoid firing if button action is clicked
       if (e.target.closest('button')) return;
       loadSceneVideo(index, { autoplay: appState.isPlaying, reason: "timeline-click" });
     });
-
-    // Replace visual action
     card.querySelector('button[data-action="regen"]').addEventListener('click', async () => {
-      showToast(`Generating new scene loop for Scene ${index + 1}...`, "success");
+      showToast(`Generating new scene for Scene ${index + 1}...`, "success");
       scene.videoUrl = await searchVideoAsset(scene.prompt, appState.style);
       updateTimelineList();
       if (index === appState.activeSceneIndex) {
@@ -1178,51 +1109,39 @@ function updateTimelineList() {
       }
       saveProjectToHistory();
     });
-
     elements.timelineList.appendChild(card);
   });
-  
   feather.replace();
 }
 
-// Drag & Drop Timeline Manager
-let dragStartIndex;
+// ─────────────────────────────────────────────────────────────────
+// Drag & Drop
+// ─────────────────────────────────────────────────────────────────
 function initDragAndDrop() {
   const list = elements.timelineList;
-  
   list.addEventListener('dragstart', (e) => {
     const card = e.target.closest('.timeline-card');
     if (!card) return;
     dragStartIndex = parseInt(card.dataset.index);
     card.classList.add('dragging');
   });
-
   list.addEventListener('dragend', (e) => {
     const card = e.target.closest('.timeline-card');
     if (card) card.classList.remove('dragging');
   });
-
   list.addEventListener('dragover', (e) => {
     e.preventDefault();
     const afterElement = getDragAfterElement(list, e.clientY);
-    const draggingCard = list.querySelector('.dragging');
-    if (!draggingCard) return;
-    if (afterElement == null) {
-      list.appendChild(draggingCard);
-    } else {
-      list.insertBefore(draggingCard, afterElement);
-    }
+    const dragging = list.querySelector('.dragging');
+    if (!dragging) return;
+    if (afterElement == null) list.appendChild(dragging);
+    else list.insertBefore(dragging, afterElement);
   });
-
   list.addEventListener('drop', (e) => {
     e.preventDefault();
     const cards = Array.from(list.querySelectorAll('.timeline-card'));
-    const reorderedScenes = [];
-    cards.forEach((card, newIndex) => {
-      const originalIndex = parseInt(card.dataset.index);
-      reorderedScenes.push(appState.scenes[originalIndex]);
-    });
-    appState.scenes = reorderedScenes;
+    const reordered = cards.map(c => appState.scenes[parseInt(c.dataset.index)]);
+    appState.scenes = reordered;
     updateTimelineList();
     initializeTimelineDurations();
     loadSceneVideo(0, { autoplay: appState.isPlaying, reason: "timeline-reorder" });
@@ -1232,110 +1151,119 @@ function initDragAndDrop() {
 }
 
 function getDragAfterElement(container, y) {
-  const draggableElements = [...container.querySelectorAll('.timeline-card:not(.dragging)')];
-  return draggableElements.reduce((closest, child) => {
+  return [...container.querySelectorAll('.timeline-card:not(.dragging)')].reduce((closest, child) => {
     const box = child.getBoundingClientRect();
     const offset = y - box.top - box.height / 2;
-    if (offset < 0 && offset > closest.offset) {
-      return { offset: offset, element: child };
-    } else {
-      return closest;
-    }
+    return (offset < 0 && offset > closest.offset) ? { offset, element: child } : closest;
   }, { offset: Number.NEGATIVE_INFINITY }).element;
 }
 
-// ----------------------------------------------------
-// 7. Video Player & TTS Narration Assembly Controls
-// ----------------------------------------------------
-async function waitForVideoReady(video, timeoutMs = 9000) {
+// ─────────────────────────────────────────────────────────────────
+// Video Player Core
+// FIX: Robust load with proper fallback chain and state management
+// ─────────────────────────────────────────────────────────────────
+async function waitForVideoReady(video, timeoutMs = 10000) {
   if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) return true;
-
   return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => cleanup(() => reject(new Error("Timed out while loading video media"))), timeoutMs);
+    const timeout = setTimeout(() => cleanup(() => reject(new Error("Video load timeout"))), timeoutMs);
     const onReady = () => cleanup(() => resolve(true));
-    const onError = () => cleanup(() => reject(video.error || new Error("Video media failed to load")));
+    const onError = () => cleanup(() => reject(new Error(`Video error code: ${video.error?.code}` )));
     const cleanup = (done) => {
       clearTimeout(timeout);
       video.removeEventListener("loadeddata", onReady);
-      video.removeEventListener("canplay", onReady);
-      video.removeEventListener("error", onError);
+      video.removeEventListener("canplay",    onReady);
+      video.removeEventListener("error",      onError);
       done();
     };
-
     video.addEventListener("loadeddata", onReady, { once: true });
-    video.addEventListener("canplay", onReady, { once: true });
-    video.addEventListener("error", onError, { once: true });
+    video.addEventListener("canplay",    onReady, { once: true });
+    video.addEventListener("error",      onError, { once: true });
   });
 }
 
 async function loadSceneVideo(index, options = {}) {
   if (index < 0 || index >= appState.scenes.length) return;
-  
+
   appState.activeSceneIndex = index;
-  
-  // Highlight active card
   document.querySelectorAll('.timeline-card').forEach((c, idx) => {
-    if (idx === index) c.classList.add('active-scene');
-    else c.classList.remove('active-scene');
+    c.classList.toggle('active-scene', idx === index);
   });
 
   const scene = ensureSceneMedia(appState.scenes[index], index);
   const autoplay = options.autoplay ?? appState.isPlaying;
   const loadToken = ++currentMediaLoadToken;
-  
-  // Setup video source
+  const vid = elements.previewVideo;
+
   const cleanUrl = sanitizeMediaUrl(scene.videoUrl);
   debugMedia("load scene", {
     reason: options.reason || "scene-change",
     scene: index + 1,
     videoUrl: cleanUrl,
     audioStatus: scene.audioStatus,
-    narrationLength: scene.narration?.length || 0,
+    narrationLen: scene.narration?.length || 0,
     autoplay
   });
 
+  // FIX: Show a loading indicator on the video container during load
+  elements.videoPreviewContainer.classList.add('loading');
+
   try {
-    if (!cleanUrl) throw new Error("Scene video URL is empty");
+    if (!cleanUrl) throw new Error("Empty video URL");
 
-    if (elements.previewVideo.currentSrc !== cleanUrl && elements.previewVideo.src !== cleanUrl) {
-      elements.previewVideo.pause();
-      elements.previewVideo.removeAttribute("src");
-      elements.previewVideo.load();
-      elements.previewVideo.src = cleanUrl;
-      elements.previewVideo.load();
+    // FIX: Only reload if source actually changed — prevents unnecessary flicker
+    const currentSrc = vid.getAttribute('src') || '';
+    if (currentSrc !== cleanUrl) {
+      vid.pause();
+      vid.removeAttribute("src");
+      vid.load();                      // Reset the media pipeline
+      vid.setAttribute("src", cleanUrl);
+      vid.load();
+      debugMedia("video source set", { src: cleanUrl });
     }
 
-    await waitForVideoReady(elements.previewVideo);
-    if (loadToken !== currentMediaLoadToken) return;
+    await waitForVideoReady(vid);
+    if (loadToken !== currentMediaLoadToken) {
+      debugMedia("load cancelled", { scene: index + 1, reason: "stale token" });
+      return;
+    }
 
-    const seekTarget = Math.min(0.05, Math.max(0, (elements.previewVideo.duration || 1) - 0.05));
-    if (Number.isFinite(seekTarget)) {
-      elements.previewVideo.currentTime = seekTarget;
-    }
-  } catch (error) {
-    errorMedia("scene video load failed", { scene: index + 1, videoUrl: cleanUrl, error });
-    const fallbackUrl = getFallbackVideoUrl(appState.style, index);
-    scene.videoUrl = fallbackUrl;
-    showToast(`Scene ${index + 1} video failed to load. Using fallback footage.`, "error");
-    if (elements.previewVideo.src !== fallbackUrl) {
-      elements.previewVideo.src = fallbackUrl;
-      elements.previewVideo.load();
-    }
+    // FIX: Seek to small offset to ensure first frame renders visibly
     try {
-      await waitForVideoReady(elements.previewVideo);
-    } catch (fallbackError) {
-      errorMedia("fallback video failed", { scene: index + 1, fallbackUrl, error: fallbackError });
+      if (Number.isFinite(vid.duration) && vid.duration > 0.1) {
+        vid.currentTime = 0.01;
+      }
+    } catch(e) { /* seek may fail on some formats */ }
+
+  } catch (error) {
+    errorMedia("scene video load failed", { scene: index + 1, videoUrl: cleanUrl, error: error.message });
+    const fallbackUrl = getFallbackVideoUrl(appState.style, index);
+    if (fallbackUrl && vid.getAttribute('src') !== fallbackUrl) {
+      scene.videoUrl = fallbackUrl;
+      showToast(`Scene ${index + 1}: Using fallback footage.`, "error");
+      vid.setAttribute("src", fallbackUrl);
+      vid.load();
+      try { await waitForVideoReady(vid); } catch(fe) {
+        errorMedia("fallback video also failed", { fallbackUrl, error: fe.message });
+      }
     }
   }
 
-  // Play if active
+  elements.videoPreviewContainer.classList.remove('loading');
+
+  // FIX: Always attempt playback if autoplay is requested
+  // even if video loaded partially — the browser will handle buffering
   if (autoplay) {
-    elements.previewVideo.play().catch(e => warnMedia("video play blocked", { scene: index + 1, error: e }));
+    const playPromise = vid.play();
+    if (playPromise !== undefined) {
+      playPromise.catch(e => {
+        warnMedia("video play blocked", { scene: index + 1, error: e.message,
+          hint: "User gesture required. Click play button." });
+      });
+    }
   } else {
-    elements.previewVideo.pause();
+    vid.pause();
   }
 
-  // Update times
   updatePlaybackTimerUI();
 }
 
@@ -1346,210 +1274,232 @@ function formatTime(sec) {
 }
 
 function updatePlaybackTimerUI() {
-  elements.timeCurrent.textContent = formatTime(elapsedTime);
-  elements.timeDuration.textContent = formatTime(totalMovieDuration);
-  elements.playerScrubber.value = totalMovieDuration > 0 ? (elapsedTime / totalMovieDuration) * 100 : 0;
+  if (elements.timeCurrent) elements.timeCurrent.textContent = formatTime(elapsedTime);
+  if (elements.timeDuration) elements.timeDuration.textContent = formatTime(totalMovieDuration);
+  if (elements.playerScrubber) {
+    elements.playerScrubber.value = totalMovieDuration > 0 ? (elapsedTime / totalMovieDuration) * 100 : 0;
+  }
 }
 
 async function updatePlaybackScrub(pctVal) {
   elapsedTime = (pctVal / 100) * totalMovieDuration;
-  
-  // Find matching scene index
   let activeIdx = 0;
   for (let i = 0; i < appState.scenes.length; i++) {
-    if (elapsedTime >= sceneStartTimes[i]) {
-      activeIdx = i;
-    }
+    if (elapsedTime >= sceneStartTimes[i]) activeIdx = i;
   }
-  
   await loadSceneVideo(activeIdx, { autoplay: appState.isPlaying, reason: "scrub" });
-  
-  // Seek the current video file matching active scene offset
-  const offset = elapsedTime - sceneStartTimes[activeIdx];
+  const offset = elapsedTime - (sceneStartTimes[activeIdx] || 0);
   try {
-    elements.previewVideo.currentTime = Math.max(0, offset);
-  } catch (error) {
-    warnMedia("scrub seek failed", { offset, error });
-  }
-  
+    const vid = elements.previewVideo;
+    if (vid.readyState > 0 && Number.isFinite(offset)) {
+      vid.currentTime = Math.max(0, offset % (vid.duration || 1));
+    }
+  } catch(e) { warnMedia("scrub seek failed", { offset, error: e.message }); }
   updatePlaybackTimerUI();
 }
 
-// Unified player clock ticker
-let lastTickerTime = 0;
+// ─────────────────────────────────────────────────────────────────
+// Player Ticker — FIX: use Date.now() delta with proper init
+// ─────────────────────────────────────────────────────────────────
 function runPlayerTicker() {
   if (!appState.isPlaying) return;
-  
+
   const now = Date.now();
-  const delta = (now - lastTickerTime) / 1000;
+  // FIX: Guard against massive delta on first tick
+  const delta = lastTickerTime > 0 ? Math.min((now - lastTickerTime) / 1000, 0.5) : 0;
   lastTickerTime = now;
-  
-  elapsedTime += delta;
+
+  elapsedTime = Math.max(0, elapsedTime + delta);
   if (elapsedTime >= totalMovieDuration) {
     stopPlayback();
     return;
   }
-  
-  // Find matching scene index
+
   let activeIdx = 0;
   for (let i = 0; i < appState.scenes.length; i++) {
-    if (elapsedTime >= sceneStartTimes[i]) {
-      activeIdx = i;
-    }
+    if (elapsedTime >= sceneStartTimes[i]) activeIdx = i;
   }
-  
-  // Check if scene changed
+
   if (activeIdx !== appState.activeSceneIndex) {
+    spokenScenes.delete(appState.activeSceneIndex); // reset spoken state for old scene
     loadSceneVideo(activeIdx, { autoplay: true, reason: "timeline-advance" });
   }
-  
-  const activeScene = appState.scenes[activeIdx];
-  
-  // Play video element if paused
-  if (elements.previewVideo.paused && appState.isPlaying) {
-    elements.previewVideo.play().catch(e => warnMedia("video ticker play failed", { error: e }));
+
+  const vid = elements.previewVideo;
+  if (vid.paused && appState.isPlaying) {
+    vid.play().catch(e => warnMedia("ticker play blocked", { error: e.message }));
   }
-  
-  // Speak narration if not spoken yet
-  if (!spokenScenes.has(activeIdx) && appState.isPlaying) {
+
+  // FIX: Only speak if not already speaking this scene
+  const activeScene = appState.scenes[activeIdx];
+  if (activeScene && !spokenScenes.has(activeIdx) && appState.isPlaying) {
     spokenScenes.add(activeIdx);
     speakNarrationSegment(activeScene.narration, activeIdx);
   }
-  
-  // Time-based fallback subtitles
-  if (!window.speechSynthesis.speaking) {
-    const sceneElapsed = elapsedTime - sceneStartTimes[activeIdx];
-    const duration = activeScene.duration;
+
+  // Fallback subtitle progress (when speech boundary events unavailable)
+  if (activeScene && !window.speechSynthesis.speaking) {
+    const sceneElapsed = elapsedTime - (sceneStartTimes[activeIdx] || 0);
     const words = activeScene.narration.split(" ");
-    const wordProgress = Math.floor((sceneElapsed / duration) * words.length);
-    elements.subtitleText.textContent = words.slice(0, Math.max(1, wordProgress + 1)).join(" ");
+    const wordIdx = Math.floor((sceneElapsed / activeScene.duration) * words.length);
+    elements.subtitleText.textContent = words.slice(0, Math.max(1, wordIdx + 1)).join(" ");
   }
 
   updatePlaybackTimerUI();
-  
-  if (appState.isPlaying) {
-    playerTimer = requestAnimationFrame(runPlayerTicker);
-  }
+  playerTimer = requestAnimationFrame(runPlayerTicker);
 }
 
-// Speech Synthesizer Voiceover controls
+// ─────────────────────────────────────────────────────────────────
+// Speech Synthesis — FIX: async voice loading, volume control,
+// graceful fallback if synthesis unavailable
+// ─────────────────────────────────────────────────────────────────
 function speakNarrationSegment(text, sceneIndex) {
-  window.speechSynthesis.cancel(); // Stop active voices
-  
-  if (!text) {
+  if (!text || !text.trim()) {
     warnMedia("audio fallback", { scene: sceneIndex + 1, reason: "empty narration" });
     return;
   }
 
-  if (!("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined") {
+  if (!("speechSynthesis" in window)) {
     warnMedia("audio fallback", { scene: sceneIndex + 1, reason: "speech synthesis unavailable" });
-    elements.subtitleText.textContent = text;
+    if (elements.subtitleText) elements.subtitleText.textContent = text;
     return;
   }
 
+  // FIX: Cancel any in-progress speech before starting new utterance
+  window.speechSynthesis.cancel();
+
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.lang = getLanguageCode(appState.language);
-  utterance.volume = voiceVolume;
+  utterance.volume = Math.max(0, Math.min(1, voiceVolume));
+
   debugMedia("audio request", {
     mode: "speech-synthesis",
     scene: sceneIndex + 1,
     lang: utterance.lang,
     textLength: text.length,
-    volume: voiceVolume
+    volume: utterance.volume
   });
-  
-  // Set voice selections
-  const voiceName = document.getElementById('voice-select')?.value;
-  if (voiceName) {
-    const v = window.speechSynthesis.getVoices().find(v => v.name === voiceName);
-    if (v) utterance.voice = v;
+
+  // FIX: Get voice from selector (may not exist yet — safe fallback)
+  const voiceNameEl = document.getElementById('voice-select');
+  if (voiceNameEl && voiceNameEl.value) {
+    const voices = window.speechSynthesis.getVoices();
+    const selectedVoice = voices.find(v => v.name === voiceNameEl.value);
+    if (selectedVoice) utterance.voice = selectedVoice;
   }
 
-  // Speed and Pitch settings
-  utterance.rate = parseFloat(document.getElementById('voice-rate')?.value || 1);
-  utterance.pitch = parseFloat(document.getElementById('voice-pitch')?.value || 1);
+  const pitchEl = document.getElementById('voice-pitch');
+  const rateEl  = document.getElementById('voice-rate');
+  utterance.rate  = parseFloat(rateEl?.value  || "0.95");
+  utterance.pitch = parseFloat(pitchEl?.value || "1");
 
-  // Audio Ducking logic
   utterance.onstart = () => {
     activeUtterance = utterance;
-    debugMedia("audio api response", { mode: "speech-synthesis", scene: sceneIndex + 1, status: "started", voice: utterance.voice?.name || "browser-default" });
-    fadeAudioVolume(bgMusicAudio, musicVolume, 0.08, 300); // Duck background music
+    debugMedia("audio api response", {
+      mode: "speech-synthesis", scene: sceneIndex + 1,
+      status: "started", voice: utterance.voice?.name || "browser-default"
+    });
+    const audio = getOrCreateBgAudio();
+    fadeAudioVolume(audio, audio.volume, 0.08, 300); // Duck music
   };
 
-  // Sync Subtitles using Speech Synthesis Boundaries
   utterance.onboundary = (e) => {
     if (appState.activeSceneIndex !== sceneIndex) return;
     if (e.name === 'word' || e.name === 'sentence') {
-      const charIndex = e.charIndex;
-      const charLength = e.charLength || 10;
-      elements.subtitleText.textContent = text.slice(0, charIndex + charLength);
+      const end = e.charIndex + (e.charLength || 10);
+      if (elements.subtitleText) elements.subtitleText.textContent = text.slice(0, end);
     }
   };
 
   utterance.onend = () => {
     debugMedia("audio api response", { mode: "speech-synthesis", scene: sceneIndex + 1, status: "ended" });
-    if (activeUtterance === utterance) {
-      activeUtterance = null;
-    }
-    fadeAudioVolume(bgMusicAudio, bgMusicAudio.volume, musicVolume, 400); // Un-duck soundtrack
+    if (activeUtterance === utterance) activeUtterance = null;
+    const audio = getOrCreateBgAudio();
+    fadeAudioVolume(audio, audio.volume, musicVolume, 400); // Restore music
+    if (elements.subtitleText) elements.subtitleText.textContent = text; // Show full text at end
   };
 
   utterance.onerror = (e) => {
-    errorMedia("audio api response", { mode: "speech-synthesis", scene: sceneIndex + 1, status: "failed", error: e });
-    elements.subtitleText.textContent = text;
-    fadeAudioVolume(bgMusicAudio, bgMusicAudio.volume, musicVolume, 400);
+    // FIX: 'interrupted' is expected when cancel() is called — don't treat as real error
+    if (e.error === 'interrupted' || e.error === 'canceled') return;
+    errorMedia("audio api response", { mode: "speech-synthesis", scene: sceneIndex + 1, status: "failed", error: e.error });
+    if (elements.subtitleText) elements.subtitleText.textContent = text;
+    const audio = getOrCreateBgAudio();
+    fadeAudioVolume(audio, audio.volume, musicVolume, 400);
   };
 
-  window.speechSynthesis.speak(utterance);
+  // FIX: Chrome bug — synthesis may silently fail; use a small delay before speaking
+  setTimeout(() => {
+    if (appState.isPlaying && spokenScenes.has(sceneIndex)) {
+      window.speechSynthesis.speak(utterance);
+    }
+  }, 100);
 }
 
-// Sound mixing fade actions
 function fadeAudioVolume(audioObj, startVol, endVol, durationMs) {
+  if (!audioObj) return;
   const stepCount = 10;
   const stepTime = durationMs / stepCount;
   const volDiff = (endVol - startVol) / stepCount;
   let currentStep = 0;
-
   const timer = setInterval(() => {
     currentStep++;
-    audioObj.volume = Math.max(0, Math.min(1, startVol + (volDiff * currentStep)));
-    if (currentStep >= stepCount) {
-      clearInterval(timer);
-      audioObj.volume = endVol;
-    }
+    audioObj.volume = Math.max(0, Math.min(1, startVol + volDiff * currentStep));
+    if (currentStep >= stepCount) { clearInterval(timer); audioObj.volume = endVol; }
   }, stepTime);
 }
 
+// ─────────────────────────────────────────────────────────────────
+// Playback Control
+// FIX: Proper initialization, unlocking, and error handling
+// ─────────────────────────────────────────────────────────────────
 function startPlayback() {
   if (!appState.scenes.length) {
-    showToast("Generate a story before playing the timeline.", "error");
+    showToast("Generate a story before playing.", "error");
     return;
   }
+  unlockAudioContext();
   appState.isPlaying = true;
-  debugMedia("playback state", { state: "start", elapsedTime, activeSceneIndex: appState.activeSceneIndex });
+  debugMedia("playback state", { state: "start", elapsedTime, scene: appState.activeSceneIndex });
+
   elements.playPauseBtn.innerHTML = `<i data-feather="pause"></i>`;
   feather.replace();
-  
-  // Play background soundtrack
-  playBackgroundMusic();
-  
-  // Resume video
-  elements.previewVideo.play().catch(e => warnMedia("video play blocked", { error: e }));
-  
-  // Start Ticker
+
+  // FIX: Initialize lastTickerTime HERE, just before the first tick
   lastTickerTime = Date.now();
+
+  playBackgroundMusic();
+
+  const vid = elements.previewVideo;
+  const playPromise = vid.play();
+  if (playPromise !== undefined) {
+    playPromise.catch(e => {
+      warnMedia("video play blocked on start", { error: e.message });
+      // FIX: If autoplay blocked, retry after a small delay (browser may allow after gesture)
+      setTimeout(() => {
+        if (appState.isPlaying) vid.play().catch(() => {});
+      }, 500);
+    });
+  }
+
+  // Start narration for current scene if not yet spoken
+  const currentScene = appState.scenes[appState.activeSceneIndex];
+  if (currentScene && !spokenScenes.has(appState.activeSceneIndex)) {
+    spokenScenes.add(appState.activeSceneIndex);
+    speakNarrationSegment(currentScene.narration, appState.activeSceneIndex);
+  }
+
   cancelAnimationFrame(playerTimer);
   playerTimer = requestAnimationFrame(runPlayerTicker);
 }
 
 function pausePlayback() {
   appState.isPlaying = false;
-  debugMedia("playback state", { state: "pause", elapsedTime, activeSceneIndex: appState.activeSceneIndex });
+  debugMedia("playback state", { state: "pause", elapsedTime, scene: appState.activeSceneIndex });
   elements.playPauseBtn.innerHTML = `<i data-feather="play"></i>`;
   feather.replace();
-  
-  // Pause assets
-  bgMusicAudio.pause();
+  const audio = getOrCreateBgAudio();
+  audio.pause();
   elements.previewVideo.pause();
   window.speechSynthesis.cancel();
   cancelAnimationFrame(playerTimer);
@@ -1557,70 +1507,91 @@ function pausePlayback() {
 
 function stopPlayback() {
   appState.isPlaying = false;
-  debugMedia("playback state", { state: "stop", elapsedTime, activeSceneIndex: appState.activeSceneIndex });
+  debugMedia("playback state", { state: "stop", elapsedTime, scene: appState.activeSceneIndex });
   elements.playPauseBtn.innerHTML = `<i data-feather="play"></i>`;
   feather.replace();
-  
-  // Reset media play states
-  bgMusicAudio.pause();
-  bgMusicAudio.currentTime = 0;
-  
-  elements.previewVideo.pause();
+
+  const audio = getOrCreateBgAudio();
+  audio.pause();
+  audio.currentTime = 0;
+
+  const vid = elements.previewVideo;
+  vid.pause();
   try {
-    if (elements.previewVideo.readyState > 0) elements.previewVideo.currentTime = 0.05;
-  } catch (error) {
-    warnMedia("stop seek failed", { error });
-  }
-  
+    if (vid.readyState > 0 && Number.isFinite(vid.duration)) vid.currentTime = 0.01;
+  } catch(e) { /* ignore */ }
+
   window.speechSynthesis.cancel();
-  elements.subtitleText.textContent = "";
+  if (elements.subtitleText) elements.subtitleText.textContent = "";
   cancelAnimationFrame(playerTimer);
-  
+
   elapsedTime = 0;
+  lastTickerTime = 0;
   spokenScenes.clear();
+
   if (appState.scenes.length) {
     loadSceneVideo(0, { autoplay: false, reason: "stop-reset" });
   }
 }
 
+// ─────────────────────────────────────────────────────────────────
+// Background Music
+// FIX: Robust play with retry on autoplay block
+// ─────────────────────────────────────────────────────────────────
 function playBackgroundMusic() {
   const track = PREMIUM_SOUNDTRACKS[appState.soundtrack];
+  if (!track) { warnMedia("audio fallback", { reason: "no soundtrack URL" }); return; }
+
+  const audio = getOrCreateBgAudio();
   debugMedia("audio request", { soundtrack: appState.soundtrack, track, volume: musicVolume });
-  if (track && bgMusicAudio.src !== track) {
-    bgMusicAudio.src = track;
-    bgMusicAudio.load();
+
+  if (audio.src !== track && !audio.src.endsWith(track)) {
+    audio.src = track;
+    audio.load();
   }
-  bgMusicAudio.volume = musicVolume;
-  
-  bgMusicAudio.play().catch(e => warnMedia("audio play blocked", { track, error: e }));
+  audio.volume = musicVolume;
+
+  const playPromise = audio.play();
+  if (playPromise !== undefined) {
+    playPromise
+      .then(() => debugMedia("audio api response", { soundtrack: appState.soundtrack, status: "playing" }))
+      .catch(e => {
+        warnMedia("audio play blocked", { track, error: e.message,
+          hint: "AudioContext requires user gesture. Music will start on next interaction." });
+        // FIX: Retry after 1s in case gesture is registered slightly late
+        setTimeout(() => {
+          if (appState.isPlaying) {
+            audio.play().catch(() => {});
+          }
+        }, 1000);
+      });
+  }
 }
 
 function updateMixerVolumes() {
-  voiceVolume = parseFloat(elements.voiceVolumeSlider.value);
-  musicVolume = parseFloat(elements.musicVolumeSlider.value);
-  bgMusicAudio.volume = musicVolume;
+  voiceVolume = parseFloat(elements.voiceVolumeSlider?.value || "1");
+  musicVolume = parseFloat(elements.musicVolumeSlider?.value || "0.4");
+  const audio = getOrCreateBgAudio();
+  audio.volume = musicVolume;
 }
 
 function initializeTimelineDurations() {
-  let currentTimeAccumulator = 0;
+  let acc = 0;
   sceneStartTimes = [];
   appState.scenes.forEach(scene => {
-    sceneStartTimes.push(currentTimeAccumulator);
-    currentTimeAccumulator += scene.duration;
+    sceneStartTimes.push(acc);
+    acc += scene.duration;
   });
-  totalMovieDuration = currentTimeAccumulator;
+  totalMovieDuration = acc;
+  debugMedia("timeline durations", { sceneStartTimes, totalMovieDuration });
 }
 
-// ----------------------------------------------------
-// 8. Client-Side Video Export & Assembly Engine
-// ----------------------------------------------------
+// ─────────────────────────────────────────────────────────────────
+// Video Export Engine
+// ─────────────────────────────────────────────────────────────────
 function getSupportedRecorderMimeType() {
-  const candidates = [
-    'video/webm;codecs=vp9,opus',
-    'video/webm;codecs=vp8,opus',
-    'video/webm'
-  ];
-  return candidates.find(type => MediaRecorder.isTypeSupported(type)) || '';
+  const candidates = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+  return candidates.find(t => MediaRecorder.isTypeSupported(t)) || '';
 }
 
 async function loadExportVideoElement(scene, index) {
@@ -1632,15 +1603,14 @@ async function loadExportVideoElement(scene, index) {
   video.preload = "auto";
   video.src = scene.videoUrl;
   video.load();
-
   try {
     await waitForVideoReady(video, 12000);
     video.currentTime = 0;
     await video.play();
-    debugMedia("render progress", { stage: "export-video-loaded", scene: index + 1, videoUrl: scene.videoUrl });
+    debugMedia("render progress", { stage: "export-video-loaded", scene: index + 1 });
     return { video, ok: true };
   } catch (error) {
-    errorMedia("render progress", { stage: "export-video-failed", scene: index + 1, videoUrl: scene.videoUrl, error });
+    errorMedia("render progress", { stage: "export-video-failed", scene: index + 1, error: error.message });
     video.remove();
     return { video: null, ok: false };
   }
@@ -1648,15 +1618,13 @@ async function loadExportVideoElement(scene, index) {
 
 async function triggerVideoExport() {
   showToast("Preparing rendering frames...", "success");
-  
-  // Create fullscreen canvas compiler overlay to provide cinematic layout feedback
   const overlay = document.createElement('div');
   overlay.className = "render-overlay";
   overlay.innerHTML = `
     <div class="render-progress-card">
       <div class="orbit-loader" style="margin: 0 auto 20px auto;"></div>
       <h3 class="render-stage-title">Compiling Video File</h3>
-      <p class="render-stage-desc">Synthesizing audio nodes, applying styles, drawing frame buffers watermark-free.</p>
+      <p class="render-stage-desc">Synthesizing audio nodes, applying styles, drawing frame buffers.</p>
       <div class="progress-container">
         <div class="progress-bar-sweep">
           <div class="progress-fill-sweep" id="export-progress-fill" style="width: 0%;"></div>
@@ -1668,31 +1636,23 @@ async function triggerVideoExport() {
   `;
   document.body.appendChild(overlay);
 
-  // Setup render Canvas dimensions based on aspect ratio
   const exportCanvas = document.createElement('canvas');
-  let width = 1280;
-  let height = 720;
-  if (appState.aspectRatio === "9:16") {
-    width = 720;
-    height = 1280;
-  } else if (appState.aspectRatio === "1:1") {
-    width = 1080;
-    height = 1080;
-  }
-  exportCanvas.width = width;
-  exportCanvas.height = height;
+  let width = 1280, height = 720;
+  if (appState.aspectRatio === "9:16")  { width = 720;  height = 1280; }
+  else if (appState.aspectRatio === "1:1") { width = 1080; height = 1080; }
+  exportCanvas.width = width; exportCanvas.height = height;
   const ctx = exportCanvas.getContext('2d');
 
-  // Cancel trigger setup
   let isCancelled = false;
   document.getElementById('cancel-export-btn').addEventListener('click', () => {
     isCancelled = true;
     overlay.remove();
-    showToast("Export process cancelled", "error");
+    showToast("Export cancelled", "error");
   });
 
-  const canvasStream = exportCanvas.captureStream(30); // 30 FPS Capture
+  const canvasStream = exportCanvas.captureStream(30);
   const outputStream = new MediaStream(canvasStream.getVideoTracks());
+
   const exportMusic = new Audio();
   exportMusic.crossOrigin = "anonymous";
   exportMusic.loop = true;
@@ -1703,206 +1663,144 @@ async function triggerVideoExport() {
     await exportMusic.play();
     const audioStream = exportMusic.captureStream?.() || exportMusic.mozCaptureStream?.();
     if (audioStream) {
-      audioStream.getAudioTracks().forEach(track => outputStream.addTrack(track));
-      debugMedia("audio api response", { mode: "export-soundtrack", status: "attached", src: exportMusic.src });
-    } else {
-      warnMedia("audio fallback", { mode: "export-soundtrack", reason: "captureStream unsupported" });
+      audioStream.getAudioTracks().forEach(t => outputStream.addTrack(t));
+      debugMedia("audio api response", { mode: "export-soundtrack", status: "attached" });
     }
-  } catch (error) {
-    warnMedia("audio fallback", { mode: "export-soundtrack", reason: "playback blocked or failed", error });
+  } catch (e) {
+    warnMedia("audio fallback", { mode: "export-soundtrack", error: e.message });
   }
-  
-  // Setup audio recorder buffers
-  const recorderMimeType = getSupportedRecorderMimeType();
+
+  const mimeType = getSupportedRecorderMimeType();
   const mediaRecorder = new MediaRecorder(outputStream, {
-    ...(recorderMimeType ? { mimeType: recorderMimeType } : {}),
-    videoBitsPerSecond: 3000000 // 3 Mbps
+    ...(mimeType ? { mimeType } : {}),
+    videoBitsPerSecond: 3000000
   });
-
   const chunks = [];
-  mediaRecorder.ondataavailable = (e) => {
-    if (e.data.size > 0) chunks.push(e.data);
-  };
-
+  mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
   mediaRecorder.onstop = () => {
     if (isCancelled) return;
     overlay.remove();
-    
-    // Save output
     exportMusic.pause();
-    exportMusic.removeAttribute("src");
-    exportMusic.load();
-    const blob = new Blob(chunks, { type: recorderMimeType || 'video/webm' });
+    const blob = new Blob(chunks, { type: mimeType || 'video/webm' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `${appState.generatedTitle.replace(/\s+/g, '_')}_CineStory.webm`;
     a.click();
     showToast("Download started! Open with any media player.", "success");
+    debugMedia("render progress", { stage: "export-complete", blobSize: blob.size });
   };
 
-  // Compile frames sequentially onto canvas
   mediaRecorder.start();
-  
-  const totalScenes = appState.scenes.length;
   const progressFill = document.getElementById('export-progress-fill');
-  const progressPct = document.getElementById('export-progress-pct');
+  const progressPct  = document.getElementById('export-progress-pct');
+  const totalScenes  = appState.scenes.length;
 
   for (let idx = 0; idx < totalScenes; idx++) {
     if (isCancelled) break;
-    
     const scene = appState.scenes[idx];
-    
-    // Load video frame elements
     const { video, ok } = await loadExportVideoElement(scene, idx);
-
     const fps = 30;
     const framesCount = scene.duration * fps;
     const words = scene.narration.split(" ");
-    
+
     for (let frame = 0; frame < framesCount; frame++) {
       if (isCancelled) break;
-      
-      // Draw video source image or visible fallback frame.
-      if (ok && video && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      if (ok && video?.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
         ctx.drawImage(video, 0, 0, width, height);
       } else {
-        const gradient = ctx.createLinearGradient(0, 0, width, height);
-        gradient.addColorStop(0, "#111827");
-        gradient.addColorStop(0.5, "#312e81");
-        gradient.addColorStop(1, "#030712");
-        ctx.fillStyle = gradient;
+        const grad = ctx.createLinearGradient(0, 0, width, height);
+        grad.addColorStop(0, "#111827");
+        grad.addColorStop(0.5, "#312e81");
+        grad.addColorStop(1, "#030712");
+        ctx.fillStyle = grad;
         ctx.fillRect(0, 0, width, height);
       }
-
-      // Add watermark overlay if enabled
       if (appState.watermark === 'cinestory') {
         ctx.fillStyle = "rgba(255,255,255,0.4)";
-        ctx.font = "bold 24px 'Space Grotesk'";
+        ctx.font = "bold 24px sans-serif";
         ctx.fillText("CineStory Studio", 30, 50);
       }
-
-      // Draw custom subtitle timeline text onto export canvas frame buffer
-      ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
-      const subHeight = 90;
-      const subY = height - 150;
-      
-      // Draw subtitle backdrop pill
+      ctx.fillStyle = "rgba(0,0,0,0.7)";
       ctx.beginPath();
-      ctx.roundRect(50, subY, width - 100, subHeight, 12);
+      if (ctx.roundRect) ctx.roundRect(50, height - 150, width - 100, 90, 12);
+      else ctx.rect(50, height - 150, width - 100, 90);
       ctx.fill();
-
-      // Subtitle texts
       ctx.fillStyle = "#ffffff";
       ctx.textAlign = "center";
-      ctx.font = "32px 'Inter'";
-      
-      // Show text based on frames progression
-      const wordProgress = Math.floor((frame / framesCount) * words.length);
-      const textToShow = words.slice(0, Math.max(1, wordProgress + 1)).join(" ");
-      ctx.fillText(textToShow, width / 2, subY + 55);
-
-      // Render speed delay
+      ctx.font = "28px sans-serif";
+      const wordIdx = Math.floor((frame / framesCount) * words.length);
+      ctx.fillText(words.slice(0, Math.max(1, wordIdx + 1)).join(" "), width / 2, height - 95);
       await delay(1000 / fps);
-      
-      // Update overall progress markers
-      const totalProgressPct = Math.floor(((idx * framesCount + frame) / (totalScenes * framesCount)) * 100);
-      progressFill.style.width = `${totalProgressPct}%`;
-      progressPct.textContent = `${totalProgressPct}%`;
+      const pct = Math.floor(((idx * framesCount + frame) / (totalScenes * framesCount)) * 100);
+      if (progressFill) progressFill.style.width = `${pct}%`;
+      if (progressPct)  progressPct.textContent  = `${pct}%`;
     }
-
-    if (video) {
-      video.pause();
-      video.remove();
-    }
+    if (video) { video.pause(); video.remove(); }
   }
-
   mediaRecorder.stop();
-  if (isCancelled) {
-    exportMusic.pause();
-  }
+  if (isCancelled) exportMusic.pause();
 }
 
-// ----------------------------------------------------
-// 9. Browser Local Storage Workspace History
-// ----------------------------------------------------
+// ─────────────────────────────────────────────────────────────────
+// History
+// ─────────────────────────────────────────────────────────────────
 function saveProjectToHistory() {
-  const id = appState.generatedTitle.replace(/\s+/g, '_');
+  const id = appState.generatedTitle.replace(/\s+/g, '_') + '_' + Date.now();
   const project = {
-    id: id,
-    title: appState.generatedTitle,
-    prompt: appState.prompt,
-    style: appState.style,
-    language: appState.language,
-    aspectRatio: appState.aspectRatio,
-    duration: appState.duration,
-    characterBio: appState.characterBio,
-    scenes: appState.scenes,
+    id, title: appState.generatedTitle, prompt: appState.prompt,
+    style: appState.style, language: appState.language,
+    aspectRatio: appState.aspectRatio, duration: appState.duration,
+    characterBio: appState.characterBio, scenes: appState.scenes,
     timestamp: Date.now()
   };
-
-  const existingIdx = appState.history.findIndex(p => p.id === id);
-  if (existingIdx !== -1) {
-    appState.history[existingIdx] = project;
-  } else {
-    appState.history.unshift(project);
+  const existingIdx = appState.history.findIndex(p => p.title === appState.generatedTitle);
+  if (existingIdx !== -1) appState.history[existingIdx] = project;
+  else appState.history.unshift(project);
+  try { localStorage.setItem('studio-history', JSON.stringify(appState.history)); } catch(e) {
+    warnMedia("history save failed", { error: e.message });
   }
-
-  localStorage.setItem('studio-history', JSON.stringify(appState.history));
 }
 
 function renderHistoryModalList() {
   elements.historyListContainer.innerHTML = "";
-  
-  if (appState.history.length === 0) {
-    elements.historyListContainer.innerHTML = `<p style="text-align:center; padding: 2rem 0; color:var(--text-tertiary);">No projects saved in this library workspace.</p>`;
+  if (!appState.history.length) {
+    elements.historyListContainer.innerHTML = `<p style="text-align:center; padding: 2rem 0; color:var(--text-tertiary);">No projects saved yet.</p>`;
     return;
   }
-
   appState.history.forEach(proj => {
     const item = document.createElement('div');
     item.className = "history-item";
     item.innerHTML = `
       <div class="history-details">
-        <h4 class="history-title">${proj.title}</h4>
+        <h4 class="history-title">${escapeHtml(proj.title)}</h4>
         <div class="history-meta">
-          <span>${proj.style}</span>
-          <span>&bull;</span>
-          <span>${proj.language}</span>
-          <span>&bull;</span>
+          <span>${escapeHtml(proj.style)}</span><span>&bull;</span>
+          <span>${escapeHtml(proj.language)}</span><span>&bull;</span>
           <span>${proj.scenes.length} Scenes</span>
         </div>
       </div>
-      <button class="btn btn-secondary btn-card-action" data-action="load" data-id="${proj.id}">
-        Open Studio
-      </button>
+      <button class="btn btn-secondary btn-card-action" data-action="load">Open Studio</button>
     `;
-
-    item.querySelector('button[data-action="load"]').addEventListener('click', () => {
-      appState.generatedTitle = proj.title;
-      appState.prompt = proj.prompt;
-      appState.style = proj.style;
-      appState.language = proj.language;
-      appState.aspectRatio = proj.aspectRatio;
-      appState.duration = proj.duration;
-      appState.characterBio = proj.characterBio;
-      appState.scenes = proj.scenes;
-
-      // Render workspace
+    item.querySelector('button').addEventListener('click', () => {
+      Object.assign(appState, {
+        generatedTitle: proj.title, prompt: proj.prompt, style: proj.style,
+        language: proj.language, aspectRatio: proj.aspectRatio,
+        duration: proj.duration, characterBio: proj.characterBio, scenes: proj.scenes
+      });
       showScreen('workspace');
       renderWorkspaceTabs('script');
       updateTimelineList();
       initializeTimelineDurations();
       loadSceneVideo(0, { autoplay: false, reason: "history-load" });
       elements.historyModal.classList.add('hidden');
-      showToast(`Loaded workspace: "${proj.title}"`, "success");
+      showToast(`Loaded: "${proj.title}"`, "success");
     });
-
     elements.historyListContainer.appendChild(item);
   });
 }
 
+// ─────────────────────────────────────────────────────────────────
 // Helpers
-function delay(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
+// ─────────────────────────────────────────────────────────────────
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
