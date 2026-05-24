@@ -3,6 +3,8 @@
 // ─────────────────────────────────────────────────────────────────
 // 1. Premium Video Catalog (Fallback CDN footage)
 // ─────────────────────────────────────────────────────────────────
+// Each style has a primary GCS URL + secondary CDN fallbacks
+// The video loader tries them in order until one works
 const PREMIUM_VIDEO_CATALOG = {
   "Cinematic": [
     "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
@@ -11,31 +13,48 @@ const PREMIUM_VIDEO_CATALOG = {
   ],
   "Realistic": [
     "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4",
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4"
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4",
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
   ],
   "Anime": [
     "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
     "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4"
   ],
   "Horror": [
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4"
-  ],
-  "Fantasy": [
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4"
-  ],
-  "Documentary": [
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4"
-  ],
-  "Adventure": [
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4"
-  ],
-  "Kids story": [
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
     "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
   ],
-  "Motivational": [
+  "Fantasy": [
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+  ],
+  "Documentary": [
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4",
     "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4"
+  ],
+  "Adventure": [
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4",
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4"
+  ],
+  "Kids story": [
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4"
+  ],
+  "Motivational": [
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4",
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4"
   ]
 };
+
+// Absolute last-resort fallback URLs from different CDNs entirely
+// Used only when ALL catalog URLs fail for a scene
+const HARDCODED_LAST_RESORT_VIDEOS = [
+  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
+  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
+  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4",
+  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4"
+];
 
 // 2. Pre-curated Soundtracks
 const PREMIUM_SOUNDTRACKS = {
@@ -309,6 +328,54 @@ function getFallbackVideoUrl(style = appState.style, seed = 0) {
   return collection[Math.abs(seed) % collection.length];
 }
 
+// Try loading URLs in sequence — returns first one that fires canplay within timeout
+async function tryVideoUrlsInOrder(vid, urls, timeoutMs = 8000) {
+  for (const url of urls) {
+    if (!url) continue;
+    try {
+      // Reset video element completely
+      vid.pause();
+      vid.removeAttribute("crossorigin");
+      vid.removeAttribute("src");
+      vid.load();
+
+      const loaded = await new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          cleanup();
+          resolve(false);
+        }, timeoutMs);
+
+        const onOk  = () => { cleanup(); resolve(true);  };
+        const onErr = () => { cleanup(); resolve(false); };
+
+        function cleanup() {
+          clearTimeout(timer);
+          vid.removeEventListener("canplay",    onOk);
+          vid.removeEventListener("loadeddata", onOk);
+          vid.removeEventListener("error",      onErr);
+        }
+
+        vid.addEventListener("canplay",    onOk,  { once: true });
+        vid.addEventListener("loadeddata", onOk,  { once: true });
+        vid.addEventListener("error",      onErr, { once: true });
+
+        vid.setAttribute("src", url);
+        vid.load();
+      });
+
+      if (loaded) {
+        debugMedia("video source set", { src: url, status: "loaded-ok" });
+        return url;
+      } else {
+        warnMedia("video url failed", { url, trying: "next url in list" });
+      }
+    } catch(e) {
+      warnMedia("video url exception", { url, error: e.message });
+    }
+  }
+  return null; // all URLs failed
+}
+
 function sanitizeMediaUrl(url) {
   if (typeof url !== "string") return "";
   const cleaned = url.trim();
@@ -455,17 +522,25 @@ function setupMediaDebugging() {
   vid.addEventListener("pause",          () => debugMedia("playback state",        { state: "video-paused",  elapsedTime, scene: appState.activeSceneIndex }));
   vid.addEventListener("stalled",        () => warnMedia("video stalled",          { src: vid.currentSrc }));
   vid.addEventListener("waiting",        () => warnMedia("video buffering",        { src: vid.currentSrc }));
-  vid.addEventListener("error",          () => {
-    // FIX: Handle CORS errors gracefully — swap to non-CORS fallback
+  vid.addEventListener("error", () => {
     const errCode = vid.error ? vid.error.code : "unknown";
-    errorMedia("video error", { src: vid.currentSrc || vid.src, code: errCode, message: vid.error?.message });
-    if (appState.scenes.length && appState.scenes[appState.activeSceneIndex]) {
-      const fallback = getFallbackVideoUrl(appState.style, appState.activeSceneIndex);
-      if (vid.src !== fallback) {
-        warnMedia("applying fallback video", { fallback });
-        vid.src = fallback;
-        vid.load();
-      }
+    const errMsg  = vid.error ? vid.error.message : "unknown";
+    errorMedia("video play error", {
+      src: vid.currentSrc || vid.getAttribute("src") || "(empty)",
+      code: errCode,
+      message: errMsg,
+      // code 4 = MEDIA_ERR_SRC_NOT_SUPPORTED (bad URL, wrong MIME, CORS, 404)
+      // code 3 = MEDIA_ERR_DECODE
+      // code 2 = MEDIA_ERR_NETWORK
+      hint: errCode === 4 ? "URL returned non-video response or is unreachable" :
+            errCode === 2 ? "Network error loading video" : "Video decode/format error"
+    });
+    // FIX: Don't loop-retry from here — loadSceneVideo's tryVideoUrlsInOrder handles fallbacks.
+    // Only trigger a fresh scene load if we're not already mid-load (avoids re-entry).
+    if (appState.scenes.length && !elements.videoPreviewContainer.classList.contains("loading")) {
+      const idx = appState.activeSceneIndex;
+      warnMedia("video error recovery", { scene: idx + 1, action: "reloading scene with fallback chain" });
+      loadSceneVideo(idx, { autoplay: appState.isPlaying, reason: "error-recovery" });
     }
   });
 }
@@ -1220,54 +1295,34 @@ async function loadSceneVideo(index, options = {}) {
   // FIX: Show a loading indicator on the video container during load
   elements.videoPreviewContainer.classList.add('loading');
 
-  try {
-    if (!cleanUrl) throw new Error("Empty video URL");
+  // Build ordered URL list: primary URL first, then full catalog, then last-resort
+  const catalog = PREMIUM_VIDEO_CATALOG[appState.style] || PREMIUM_VIDEO_CATALOG.Cinematic;
+  const urlsToTry = [...new Set([cleanUrl, ...catalog, ...HARDCODED_LAST_RESORT_VIDEOS])].filter(Boolean);
+  debugMedia("video url list", { scene: index + 1, total: urlsToTry.length, primary: cleanUrl });
 
-    // FIX: Only reload if source actually changed — prevents unnecessary flicker
-    const currentSrc = vid.getAttribute('src') || '';
-    if (currentSrc !== cleanUrl) {
-      vid.pause();
-      // FIX: Remove crossorigin to avoid CORS block with CDN fallback URLs
-      // GCS (gtv-videos-bucket) does NOT send CORS headers — crossorigin="anonymous"
-      // causes the browser to hard-block the video response. Remove it.
-      vid.removeAttribute("crossorigin");
-      vid.removeAttribute("src");
-      vid.load(); // Reset media pipeline FIRST before setting new src
-      debugMedia("video source set", { src: cleanUrl });
-      // FIX: Attach waitForVideoReady listeners BEFORE setting src to avoid race condition
-      // on cached/fast-loading videos where events fire before listeners attach
-      const readyPromise = waitForVideoReady(vid);
-      vid.setAttribute("src", cleanUrl);
-      vid.load();
-      await readyPromise;
+  const currentSrc = vid.getAttribute("src") || "";
+  const alreadyLoaded = currentSrc && urlsToTry.includes(currentSrc) &&
+                        vid.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA;
+
+  if (alreadyLoaded) {
+    debugMedia("video source set", { src: currentSrc, status: "reused-cached" });
+  } else {
+    const loadedUrl = await tryVideoUrlsInOrder(vid, urlsToTry);
+    if (loadedUrl) {
+      scene.videoUrl = loadedUrl;
     } else {
-      // Source unchanged — still wait if not yet ready
-      await waitForVideoReady(vid);
+      errorMedia("scene video load failed", {
+        scene: index + 1, triedUrls: urlsToTry.length,
+        message: "All video sources failed"
+      });
+      showToast(`Scene ${index + 1}: Video unavailable. Check network.`, "error");
     }
-    if (loadToken !== currentMediaLoadToken) {
-      debugMedia("load cancelled", { scene: index + 1, reason: "stale token" });
-      return;
-    }
+  }
 
-    // FIX: Seek to small offset to ensure first frame renders visibly
-    try {
-      if (Number.isFinite(vid.duration) && vid.duration > 0.1) {
-        vid.currentTime = 0.01;
-      }
-    } catch(e) { /* seek may fail on some formats */ }
-
-  } catch (error) {
-    errorMedia("scene video load failed", { scene: index + 1, videoUrl: cleanUrl, error: error.message });
-    const fallbackUrl = getFallbackVideoUrl(appState.style, index);
-    if (fallbackUrl && vid.getAttribute('src') !== fallbackUrl) {
-      scene.videoUrl = fallbackUrl;
-      showToast(`Scene ${index + 1}: Using fallback footage.`, "error");
-      vid.setAttribute("src", fallbackUrl);
-      vid.load();
-      try { await waitForVideoReady(vid); } catch(fe) {
-        errorMedia("fallback video also failed", { fallbackUrl, error: fe.message });
-      }
-    }
+  if (loadToken !== currentMediaLoadToken) {
+    debugMedia("load cancelled", { scene: index + 1, reason: "stale token" });
+    elements.videoPreviewContainer.classList.remove('loading');
+    return;
   }
 
   elements.videoPreviewContainer.classList.remove('loading');
