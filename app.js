@@ -148,16 +148,20 @@ function startCanvasFallback(containerEl, style) {
     canvasFallbackAnim = requestAnimationFrame(draw);
   }
   draw();
+  _canvasFallbackActive = true;
   debugMedia("canvas fallback", { status: "started", style });
 }
 
 function stopCanvasFallback() {
+  _canvasFallbackActive = false;
   if (canvasFallbackAnim) {
     cancelAnimationFrame(canvasFallbackAnim);
     canvasFallbackAnim = null;
   }
   const existing = document.getElementById("canvas-fallback");
   if (existing) existing.remove();
+  // Restore video element visibility
+  if (elements.previewVideo) elements.previewVideo.style.visibility = "";
 }
 
 
@@ -1424,6 +1428,8 @@ async function loadSceneVideo(index, options = {}) {
       });
       // FIX: Start animated canvas fallback so player is never black
       startCanvasFallback(elements.videoPreviewContainer, appState.style);
+      // Hide the video element so it stops firing error events with no src
+      elements.previewVideo.style.visibility = "hidden";
       warnMedia("canvas fallback active", { scene: index + 1 });
     }
   }
@@ -1502,11 +1508,19 @@ async function updatePlaybackScrub(pctVal) {
 // ─────────────────────────────────────────────────────────────────
 // FIX: Track whether a play() call is in-flight to prevent spam
 let _playInFlight = false;
+// FIX: Track whether canvas fallback is active — skip video play() when it is
+let _canvasFallbackActive = false;
 
 function safeVideoPlay(vid, reason) {
   // Never call play() if one is already pending — this is what causes the 987 warnings
   if (_playInFlight) return;
   if (!vid.paused) return; // already playing, nothing to do
+  // Skip video play() entirely when canvas fallback is showing —
+  // the video element has no valid src so play() would throw NotSupportedError
+  if (_canvasFallbackActive) {
+    debugMedia("video play skipped", { reason, hint: "canvas fallback active, no valid video src" });
+    return;
+  }
   _playInFlight = true;
   debugMedia("video play attempt", { reason, readyState: vid.readyState, src: vid.currentSrc || vid.getAttribute("src") });
   vid.play()
