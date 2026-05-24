@@ -174,10 +174,9 @@
             <div style="font-size:0.9rem; color:rgba(255,255,255,0.25); font-family:var(--font-display);">Generate a story to preview</div>
           </div>
           <video class="preview-video" id="preview-video" loop muted playsinline preload="auto">
-            <!-- FIX: crossorigin="anonymous" removed — Google CDN (gtv-videos-bucket)
-                 and most stock video CDNs do NOT return Access-Control-Allow-Origin.
-                 With crossorigin set, the browser hard-blocks the video (CORS error = black screen).
-                 Speech synthesis (Web Speech API) handles audio separately so muted is fine. -->
+            <!-- crossorigin intentionally omitted so public stock/sample videos can load
+                 even when a provider does not expose CORS headers for media tags.
+                 Speech synthesis (Web Speech API) handles narration separately. -->
           </video>
 
           <!-- Dynamic subtitles overlay -->

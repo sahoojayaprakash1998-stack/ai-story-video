@@ -1379,7 +1379,7 @@ p {
   border-color: rgba(239, 68, 68, 0.5);
 }
 .video-preview-container.error-state::before {
-  content: '⚠ Video load failed — using fallback';
+  content: 'Video load failed - using fallback';
   position: absolute;
   top: 8px;
   left: 50%;

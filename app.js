@@ -7,53 +7,51 @@
 // The video loader tries them in order until one works
 const PREMIUM_VIDEO_CATALOG = {
   "Cinematic": [
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+    "https://media.w3.org/2010/05/sintel/trailer.mp4",
+    "https://media.w3.org/2010/05/bunny/trailer.mp4"
   ],
   "Realistic": [
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4",
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4",
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+    "https://media.w3.org/2010/05/bunny/trailer.mp4",
+    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+    "https://media.w3.org/2010/05/sintel/trailer.mp4"
   ],
   "Anime": [
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4"
+    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+    "https://media.w3.org/2010/05/bunny/trailer.mp4"
   ],
   "Horror": [
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+    "https://media.w3.org/2010/05/sintel/trailer.mp4",
+    "https://media.w3.org/2010/05/bunny/trailer.mp4"
   ],
   "Fantasy": [
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+    "https://media.w3.org/2010/05/sintel/trailer.mp4"
   ],
   "Documentary": [
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4",
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4"
+    "https://media.w3.org/2010/05/bunny/trailer.mp4",
+    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"
   ],
   "Adventure": [
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4",
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4"
+    "https://media.w3.org/2010/05/sintel/trailer.mp4",
+    "https://media.w3.org/2010/05/bunny/trailer.mp4"
   ],
   "Kids story": [
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4"
+    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+    "https://media.w3.org/2010/05/bunny/trailer.mp4"
   ],
   "Motivational": [
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4",
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4"
+    "https://media.w3.org/2010/05/sintel/trailer.mp4",
+    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"
   ]
 };
 
 // Absolute last-resort fallback URLs from different CDNs entirely
 // Used only when ALL catalog URLs fail for a scene
 const HARDCODED_LAST_RESORT_VIDEOS = [
-  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
-  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
-  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4",
-  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4"
+  "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+  "https://media.w3.org/2010/05/sintel/trailer.mp4",
+  "https://media.w3.org/2010/05/bunny/trailer.mp4"
 ];
 
 // ─────────────────────────────────────────────────────────────────
@@ -320,21 +318,21 @@ const TRENDING_TEMPLATES = [
     prompt: "A lone astronaut walking on a glowing purple alien planet watching star dust drift",
     style: "Cinematic",
     lang: "English",
-    video: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4"
+    video: "https://media.w3.org/2010/05/sintel/trailer.mp4"
   },
   {
     title: "Shadows of Kyoto",
     prompt: "Rainy neon-lit street in Tokyo with glowing water reflections and train tracks",
     style: "Realistic",
     lang: "English",
-    video: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4"
+    video: "https://media.w3.org/2010/05/bunny/trailer.mp4"
   },
   {
     title: "Whispering Woodlands",
     prompt: "An enchanted magical forest river glowing under crystal sunlight with floating particles",
     style: "Fantasy",
     lang: "English",
-    video: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4"
+    video: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"
   }
 ];
 
@@ -379,6 +377,7 @@ let totalMovieDuration = 30;
 let spokenScenes = new Set();
 let currentMediaLoadToken = 0;
 let lastTickerTime = 0;    // FIX: initialize to 0, set properly in startPlayback
+const mediaUrlValidationCache = new Map();
 let dragStartIndex;
 let animationFrameId;
 
@@ -437,12 +436,148 @@ function getFallbackVideoUrl(style = appState.style, seed = 0) {
   return collection[Math.abs(seed) % collection.length];
 }
 
+function mediaElementProbe(url, type = "video", timeoutMs = 8000) {
+  return new Promise((resolve) => {
+    const el = document.createElement(type === "audio" ? "audio" : "video");
+    let finished = false;
+    el.preload = "metadata";
+    if (type === "video") {
+      el.muted = true;
+      el.playsInline = true;
+    }
+
+    const finish = (result) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      el.removeEventListener("loadedmetadata", onReady);
+      el.removeEventListener("canplay", onReady);
+      el.removeEventListener("error", onError);
+      el.removeAttribute("src");
+      el.load();
+      resolve(result);
+    };
+
+    const onReady = () => finish({
+      ok: true,
+      via: "media-element",
+      finalUrl: el.currentSrc || url,
+      duration: Number.isFinite(el.duration) ? el.duration : null,
+      width: el.videoWidth || null,
+      height: el.videoHeight || null
+    });
+    const onError = () => finish({
+      ok: false,
+      via: "media-element",
+      reason: "media-element-error",
+      code: el.error?.code || "unknown",
+      message: el.error?.message || "unknown"
+    });
+    const timer = setTimeout(() => finish({
+      ok: false,
+      via: "media-element",
+      reason: "validation-timeout"
+    }), timeoutMs);
+
+    el.addEventListener("loadedmetadata", onReady, { once: true });
+    el.addEventListener("canplay", onReady, { once: true });
+    el.addEventListener("error", onError, { once: true });
+    el.src = url;
+    el.load();
+  });
+}
+
+async function validateMediaUrl(url, type = "video") {
+  const cleaned = sanitizeMediaUrl(url);
+  const cacheKey = `${type}:${cleaned}`;
+  if (!cleaned) {
+    const result = { ok: false, url, type, reason: "empty-url" };
+    warnMedia(`${type} url validation`, result);
+    return result;
+  }
+  if (!/^https?:\/\//i.test(cleaned)) {
+    const result = { ok: false, url: cleaned, type, reason: "unsupported-url-scheme" };
+    warnMedia(`${type} url validation`, result);
+    return result;
+  }
+  if (mediaUrlValidationCache.has(cacheKey)) return mediaUrlValidationCache.get(cacheKey);
+
+  const expectedPrefix = type === "audio" ? "audio/" : "video/";
+  const expectedExt = type === "audio" ? /\.(mp3|m4a|wav|ogg)(\?|#|$)/i : /\.(mp4|webm|mov|m4v)(\?|#|$)/i;
+  let result;
+
+  try {
+    const response = await fetch(cleaned, { method: "HEAD", cache: "no-store", redirect: "follow" });
+    const contentType = (response.headers.get("content-type") || "").toLowerCase();
+    const acceptRanges = response.headers.get("accept-ranges") || "";
+    const finalUrl = response.url || cleaned;
+    const mimeLooksPlayable = contentType.startsWith(expectedPrefix) ||
+      (contentType === "application/octet-stream" && expectedExt.test(finalUrl));
+
+    if (!response.ok) {
+      result = {
+        ok: false,
+        url: cleaned,
+        finalUrl,
+        type,
+        status: response.status,
+        contentType,
+        acceptRanges,
+        reason: "non-2xx-response"
+      };
+    } else if (!mimeLooksPlayable) {
+      result = {
+        ok: false,
+        url: cleaned,
+        finalUrl,
+        type,
+        status: response.status,
+        contentType,
+        acceptRanges,
+        reason: "invalid-mime-type"
+      };
+    } else {
+      result = {
+        ok: true,
+        url: cleaned,
+        finalUrl,
+        type,
+        status: response.status,
+        contentType,
+        acceptRanges,
+        via: "head"
+      };
+    }
+  } catch (error) {
+    warnMedia(`${type} url validation`, {
+      url: cleaned,
+      reason: "head-request-failed",
+      error: error.message,
+      fallback: "media-element-probe"
+    });
+    result = await mediaElementProbe(cleaned, type);
+    result = { ...result, url: cleaned, finalUrl: result.finalUrl || cleaned, type };
+  }
+
+  if (result.ok) debugMedia(`${type} url validation`, result);
+  else warnMedia(`${type} url validation`, result);
+  mediaUrlValidationCache.set(cacheKey, result);
+  return result;
+}
+
 // Try loading URLs in sequence — returns first one that fires canplay within timeout
 async function tryVideoUrlsInOrder(vid, urls, timeoutMs = 12000) {
   for (const url of urls) {
     if (!url) continue;
     try {
-      debugMedia("video request", { attempting: url });
+      const validation = await validateMediaUrl(url, "video");
+      if (!validation.ok) {
+        warnMedia("video url failed", { url, reason: validation.reason, status: validation.status, contentType: validation.contentType });
+        continue;
+      }
+
+      const playableUrl = validation.finalUrl || url;
+      debugMedia("video request", { attempting: playableUrl, validation });
       // Reset video element completely
       vid.pause();
       vid.removeAttribute("crossorigin");
@@ -469,15 +604,15 @@ async function tryVideoUrlsInOrder(vid, urls, timeoutMs = 12000) {
         vid.addEventListener("loadeddata", onOk,  { once: true });
         vid.addEventListener("error",      onErr, { once: true });
 
-        vid.setAttribute("src", url);
+        vid.setAttribute("src", playableUrl);
         vid.load();
       });
 
       if (loaded) {
-        debugMedia("video source set", { src: url, status: "loaded-ok" });
-        return url;
+        debugMedia("video source set", { src: playableUrl, status: "loaded-ok" });
+        return playableUrl;
       } else {
-        warnMedia("video url failed", { url, trying: "next url in list" });
+        warnMedia("video url failed", { url: playableUrl, trying: "next url in list" });
       }
     } catch(e) {
       warnMedia("video url exception", { url, error: e.message });
@@ -978,6 +1113,7 @@ async function startGenerationPipeline() {
 }
 
 function updateProgress(stepNum, pct, title, desc) {
+  debugMedia("render progress", { step: stepNum, pct, title, desc });
   elements.renderStageTitle.textContent = title;
   elements.renderStageDesc.textContent = desc;
   elements.progressFill.style.width = `${pct}%`;
@@ -1104,20 +1240,46 @@ async function searchVideoAsset(scenePrompt, style) {
         const data = await response.json();
         if (data.videos?.length > 0) {
           const selected = data.videos[Math.floor(Math.random() * data.videos.length)];
-          const match = selected.video_files.find(f => f.quality === 'hd' || f.quality === 'sd') || selected.video_files[0];
-          if (match?.link) {
-            debugMedia("generated urls", { provider: "pexels", videoUrl: match.link });
-            return match.link;
+          const candidates = [
+            ...(selected.video_files || []).filter(f => f.quality === 'hd' || f.quality === 'sd'),
+            ...(selected.video_files || [])
+          ];
+          for (const match of candidates) {
+            if (!match?.link) continue;
+            const validation = await validateMediaUrl(match.link, "video");
+            if (validation.ok) {
+              debugMedia("generated urls", { provider: "pexels", videoUrl: validation.finalUrl || match.link, validation });
+              return validation.finalUrl || match.link;
+            }
+            warnMedia("video url failed", { provider: "pexels", videoUrl: match.link, reason: validation.reason });
           }
         }
       }
     } catch (e) {
       warnMedia("failed request", { provider: "pexels", error: e.message });
     }
+  } else {
+    warnMedia("video api response", { provider: "pexels", status: "skipped", reason: "missing-api-key" });
   }
-  const fallback = getFallbackVideoUrl(style, Math.floor(Math.random() * 1000));
-  debugMedia("generated urls", { provider: "fallback-catalog", videoUrl: fallback });
-  return fallback;
+
+  const catalog = PREMIUM_VIDEO_CATALOG[style] || PREMIUM_VIDEO_CATALOG.Cinematic;
+  const seed = Math.floor(Math.random() * 1000);
+  const candidates = [...new Set([
+    getFallbackVideoUrl(style, seed),
+    ...catalog,
+    ...HARDCODED_LAST_RESORT_VIDEOS
+  ])];
+  for (const candidate of candidates) {
+    const validation = await validateMediaUrl(candidate, "video");
+    if (validation.ok) {
+      const finalUrl = validation.finalUrl || candidate;
+      debugMedia("generated urls", { provider: "fallback-catalog", videoUrl: finalUrl, validation });
+      return finalUrl;
+    }
+  }
+
+  errorMedia("generated urls", { provider: "fallback-catalog", status: "failed", tried: candidates.length });
+  return "";
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -1404,6 +1566,7 @@ async function loadSceneVideo(index, options = {}) {
 
   // FIX: Show a loading indicator on the video container during load
   elements.videoPreviewContainer.classList.add('loading');
+  elements.videoPreviewContainer.classList.remove('error-state');
 
   // Build ordered URL list: primary URL first, then full catalog, then last-resort
   const catalog = PREMIUM_VIDEO_CATALOG[appState.style] || PREMIUM_VIDEO_CATALOG.Cinematic;
@@ -1413,6 +1576,7 @@ async function loadSceneVideo(index, options = {}) {
   const currentSrc = vid.getAttribute("src") || "";
   const alreadyLoaded = currentSrc && urlsToTry.includes(currentSrc) &&
                         vid.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA;
+  let videoLoaded = alreadyLoaded;
 
   if (alreadyLoaded) {
     debugMedia("video source set", { src: currentSrc, status: "reused-cached" });
@@ -1420,6 +1584,8 @@ async function loadSceneVideo(index, options = {}) {
     const loadedUrl = await tryVideoUrlsInOrder(vid, urlsToTry);
     if (loadedUrl) {
       scene.videoUrl = loadedUrl;
+      scene.mediaReady = true;
+      videoLoaded = true;
       stopCanvasFallback(); // video loaded — remove canvas if it was showing
     } else {
       errorMedia("scene video load failed", {
@@ -1427,10 +1593,13 @@ async function loadSceneVideo(index, options = {}) {
         message: "All video sources failed — using canvas fallback"
       });
       // FIX: Start animated canvas fallback so player is never black
+      scene.mediaReady = false;
       startCanvasFallback(elements.videoPreviewContainer, appState.style);
+      elements.videoPreviewContainer.classList.add('error-state');
       // Hide the video element so it stops firing error events with no src
       elements.previewVideo.style.visibility = "hidden";
       warnMedia("canvas fallback active", { scene: index + 1 });
+      showToast("No playable video URL found. Showing animated fallback.", "error");
     }
   }
 
@@ -1442,15 +1611,18 @@ async function loadSceneVideo(index, options = {}) {
 
   elements.videoPreviewContainer.classList.remove('loading');
 
-  // FIX: Hide the placeholder once a video is loaded and visible
+  // FIX: Hide the placeholder only once real video data is loaded and visible
   const placeholder = document.getElementById('video-placeholder');
-  if (placeholder && !placeholder.classList.contains('hidden-placeholder')) {
+  if (videoLoaded && placeholder && !placeholder.classList.contains('hidden-placeholder')) {
     placeholder.classList.add('hidden-placeholder');
     debugMedia("video source set", { status: "placeholder-hidden", scene: index + 1 });
+  } else if (!videoLoaded && placeholder) {
+    placeholder.classList.remove('hidden-placeholder');
   }
   // Stop canvas fallback if video loaded successfully
   if (vid.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
     stopCanvasFallback();
+    elements.videoPreviewContainer.classList.remove('error-state');
   }
 
   // FIX: Render first frame even on non-autoplay by seeking to 0.01
@@ -1492,6 +1664,11 @@ async function updatePlaybackScrub(pctVal) {
   for (let i = 0; i < appState.scenes.length; i++) {
     if (elapsedTime >= sceneStartTimes[i]) activeIdx = i;
   }
+  if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+  activeUtterance = null;
+  spokenScenes.clear();
+  if (elements.subtitleText) elements.subtitleText.textContent = "";
+  debugMedia("playback state", { state: "scrub", elapsedTime, scene: activeIdx });
   await loadSceneVideo(activeIdx, { autoplay: appState.isPlaying, reason: "scrub" });
   const offset = elapsedTime - (sceneStartTimes[activeIdx] || 0);
   try {
@@ -1569,7 +1746,10 @@ function runPlayerTicker() {
   }
 
   if (activeIdx !== appState.activeSceneIndex) {
-    spokenScenes.delete(appState.activeSceneIndex);
+    if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+    activeUtterance = null;
+    spokenScenes.delete(activeIdx);
+    if (elements.subtitleText) elements.subtitleText.textContent = "";
     // loadSceneVideo is async — don't await in ticker, it handles its own play()
     loadSceneVideo(activeIdx, { autoplay: true, reason: "timeline-advance" });
   } else {
@@ -1746,7 +1926,8 @@ function startPlayback() {
 
   // Start narration for current scene if not yet spoken
   const currentScene = appState.scenes[appState.activeSceneIndex];
-  if (currentScene && !spokenScenes.has(appState.activeSceneIndex)) {
+  if (currentScene) {
+    spokenScenes.delete(appState.activeSceneIndex);
     spokenScenes.add(appState.activeSceneIndex);
     speakNarrationSegment(currentScene.narration, appState.activeSceneIndex);
   }
@@ -1764,7 +1945,9 @@ function pausePlayback() {
   const audio = getOrCreateBgAudio();
   audio.pause();
   elements.previewVideo.pause();
-  window.speechSynthesis.cancel();
+  if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+  activeUtterance = null;
+  spokenScenes.delete(appState.activeSceneIndex);
   cancelAnimationFrame(playerTimer);
 }
 
@@ -1784,7 +1967,8 @@ function stopPlayback() {
     if (vid.readyState > 0 && Number.isFinite(vid.duration)) vid.currentTime = 0.01;
   } catch(e) { /* ignore */ }
 
-  window.speechSynthesis.cancel();
+  if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+  activeUtterance = null;
   if (elements.subtitleText) elements.subtitleText.textContent = "";
   cancelAnimationFrame(playerTimer);
 
@@ -1813,20 +1997,27 @@ async function tryLoadAudioWithFallback(audio, primaryUrl, fallbacks = []) {
   const urls = [primaryUrl, ...fallbacks].filter(Boolean);
   for (const url of urls) {
     try {
-      audio.src = url;
+      const validation = await validateMediaUrl(url, "audio");
+      if (!validation.ok) {
+        warnMedia("audio fallback", { failedUrl: url, reason: validation.reason, status: validation.status, contentType: validation.contentType });
+        continue;
+      }
+
+      const playableUrl = validation.finalUrl || url;
+      audio.src = playableUrl;
       audio.load();
-      // Test if it loads without CORS error
+      debugMedia("audio request", { mode: "background-music-load", url: playableUrl, validation });
       await new Promise((resolve, reject) => {
         const onLoad = () => { audio.removeEventListener('canplay', onLoad); audio.removeEventListener('error', onErr); resolve(); };
         const onErr = () => { audio.removeEventListener('canplay', onLoad); audio.removeEventListener('error', onErr); reject(new Error('audio load failed')); };
         audio.addEventListener('canplay', onLoad, { once: true });
         audio.addEventListener('error', onErr, { once: true });
-        setTimeout(() => { audio.removeEventListener('canplay', onLoad); audio.removeEventListener('error', onErr); resolve(); }, 3000);
+        setTimeout(() => { audio.removeEventListener('canplay', onLoad); audio.removeEventListener('error', onErr); reject(new Error('audio load timeout')); }, 5000);
       });
-      debugMedia("audio api response", { mode: "background-music", url, status: "loaded" });
-      return url;
+      debugMedia("audio api response", { mode: "background-music", url: playableUrl, status: "loaded" });
+      return playableUrl;
     } catch(e) {
-      warnMedia("audio fallback", { failedUrl: url, trying: "next fallback" });
+      warnMedia("audio fallback", { failedUrl: url, error: e.message, trying: "next fallback" });
     }
   }
   warnMedia("audio fallback", { reason: "all audio sources failed — music disabled" });
@@ -1842,7 +2033,11 @@ function playBackgroundMusic() {
 
   const needsLoad = !audio.src || (!audio.src.endsWith(track) && audio.src !== track);
   if (needsLoad) {
-    tryLoadAudioWithFallback(audio, track, AUDIO_FALLBACK_URLS).then(() => {
+    tryLoadAudioWithFallback(audio, track, AUDIO_FALLBACK_URLS).then((loadedUrl) => {
+      if (!loadedUrl) {
+        warnMedia("audio fallback", { mode: "background-music", status: "disabled" });
+        return;
+      }
       audio.volume = musicVolume;
       if (!appState.isPlaying) return;
       audio.play()
