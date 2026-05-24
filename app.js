@@ -751,6 +751,30 @@ async function playBackgroundMusic() {
 }
 
   warnMedia("audio fallback", { reason: "all background music URLs failed" });
+}async function playBackgroundMusic() {
+  unlockAudio();
+
+  if (!bgAudio) return;
+
+  const url = AUDIO_URLS[0];
+
+  bgAudio.src = url;
+  bgAudio.volume = Number(elements.musicVolumeSlider?.value || 0.4);
+  bgAudio.load();
+
+  try {
+    await bgAudio.play();
+    logMedia("audio api response", {
+      mode: "background-music",
+      status: "playing",
+      url: bgAudio.src
+    });
+  } catch (err) {
+    warnMedia("audio play blocked", {
+      error: err.message,
+      fallback: "music disabled, narration continues"
+    });
+  }
 }
 
 function speakScene(index) {
