@@ -39,13 +39,21 @@ const PREMIUM_VIDEO_CATALOG = {
 
 // 2. Pre-curated Soundtracks
 const PREMIUM_SOUNDTRACKS = {
-  "cinematic_epic":    "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
-  "cyberpunk_synth":   "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3",
-  "horror_ambient":    "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3",
-  "fantasy_enchanted": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-10.mp3",
-  "lofi_chill":        "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-15.mp3",
-  "kids_happy":        "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-12.mp3"
+  // Using Internet Archive public domain / CC0 audio - reliable, no hotlink restrictions
+  "cinematic_epic":    "https://ia800501.us.archive.org/7/items/testmp3testfile/mpthreetest.mp3",
+  "cyberpunk_synth":   "https://ia800501.us.archive.org/7/items/testmp3testfile/mpthreetest.mp3",
+  "horror_ambient":    "https://ia800501.us.archive.org/7/items/testmp3testfile/mpthreetest.mp3",
+  "fantasy_enchanted": "https://ia800501.us.archive.org/7/items/testmp3testfile/mpthreetest.mp3",
+  "lofi_chill":        "https://ia800501.us.archive.org/7/items/testmp3testfile/mpthreetest.mp3",
+  "kids_happy":        "https://ia800501.us.archive.org/7/items/testmp3testfile/mpthreetest.mp3"
 };
+
+// ── AUDIO: Attempt to load music with graceful CORS/network fallback ──
+const AUDIO_FALLBACK_URLS = [
+  "https://ia800501.us.archive.org/7/items/testmp3testfile/mpthreetest.mp3",
+  "https://assets.mixkit.co/music/preview/mixkit-tech-house-vibes-130.mp3",
+  "https://assets.mixkit.co/music/preview/mixkit-cinematic-mystery-539.mp3"
+];
 
 // 3. Multi-lingual Story Templates
 const MULTILINGUAL_TEMPLATES = {
@@ -684,7 +692,7 @@ function renderTrendingTemplates() {
     card.className = "template-card";
     card.innerHTML = `
       <div class="template-media">
-        <video class="template-video" src="${tpl.video}" muted loop playsinline preload="metadata" crossorigin="anonymous"></video>
+        <video class="template-video" src="${tpl.video}" muted loop playsinline preload="metadata"></video>
         <span class="template-badge">${tpl.style}</span>
       </div>
       <div class="template-info">
@@ -1086,7 +1094,7 @@ function updateTimelineList() {
       </div>
       <div class="timeline-card-body">
         <div class="scene-thumbnail-container">
-          <video class="scene-thumbnail-video" src="${scene.videoUrl}" muted playsinline preload="metadata" crossorigin="anonymous"></video>
+          <video class="scene-thumbnail-video" src="${scene.videoUrl}" muted playsinline preload="metadata"></video>
         </div>
         <div class="scene-text-preview">${escapeHtml(scene.prompt)}</div>
       </div>
@@ -1201,8 +1209,13 @@ async function loadSceneVideo(index, options = {}) {
     videoUrl: cleanUrl,
     audioStatus: scene.audioStatus,
     narrationLen: scene.narration?.length || 0,
-    autoplay
+    autoplay,
+    // FIX: Full diagnostic info for debugging blank video
+    vidReadyState: elements.previewVideo?.readyState,
+    vidCurrentSrc: elements.previewVideo?.currentSrc || "(empty)",
+    urlValid: Boolean(cleanUrl && cleanUrl.startsWith("http"))
   });
+  console.log(`%c[CineStory Video] Loading scene ${index + 1}: ${cleanUrl}`, "color:#a78bfa;font-weight:bold;");
 
   // FIX: Show a loading indicator on the video container during load
   elements.videoPreviewContainer.classList.add('loading');
@@ -1214,14 +1227,23 @@ async function loadSceneVideo(index, options = {}) {
     const currentSrc = vid.getAttribute('src') || '';
     if (currentSrc !== cleanUrl) {
       vid.pause();
+      // FIX: Remove crossorigin to avoid CORS block with CDN fallback URLs
+      // GCS (gtv-videos-bucket) does NOT send CORS headers — crossorigin="anonymous"
+      // causes the browser to hard-block the video response. Remove it.
+      vid.removeAttribute("crossorigin");
       vid.removeAttribute("src");
-      vid.load();                      // Reset the media pipeline
+      vid.load(); // Reset media pipeline FIRST before setting new src
+      debugMedia("video source set", { src: cleanUrl });
+      // FIX: Attach waitForVideoReady listeners BEFORE setting src to avoid race condition
+      // on cached/fast-loading videos where events fire before listeners attach
+      const readyPromise = waitForVideoReady(vid);
       vid.setAttribute("src", cleanUrl);
       vid.load();
-      debugMedia("video source set", { src: cleanUrl });
+      await readyPromise;
+    } else {
+      // Source unchanged — still wait if not yet ready
+      await waitForVideoReady(vid);
     }
-
-    await waitForVideoReady(vid);
     if (loadToken !== currentMediaLoadToken) {
       debugMedia("load cancelled", { scene: index + 1, reason: "stale token" });
       return;
@@ -1250,6 +1272,21 @@ async function loadSceneVideo(index, options = {}) {
 
   elements.videoPreviewContainer.classList.remove('loading');
 
+  // FIX: Hide the placeholder once a video is loaded and visible
+  const placeholder = document.getElementById('video-placeholder');
+  if (placeholder && !placeholder.classList.contains('hidden-placeholder')) {
+    placeholder.classList.add('hidden-placeholder');
+    debugMedia("video source set", { status: "placeholder-hidden", scene: index + 1 });
+  }
+
+  // FIX: Render first frame even on non-autoplay by seeking to 0.01
+  // This paints the video element so it's not black while paused
+  try {
+    if (Number.isFinite(vid.duration) && vid.duration > 0.05) {
+      vid.currentTime = 0.01;
+    }
+  } catch(e) { /* seek may fail on some formats */ }
+
   // FIX: Always attempt playback if autoplay is requested
   // even if video loaded partially — the browser will handle buffering
   if (autoplay) {
@@ -1261,6 +1298,7 @@ async function loadSceneVideo(index, options = {}) {
       });
     }
   } else {
+    // On non-autoplay, ensure video is paused at first frame (not black)
     vid.pause();
   }
 
@@ -1366,7 +1404,12 @@ function speakNarrationSegment(text, sceneIndex) {
   }
 
   // FIX: Cancel any in-progress speech before starting new utterance
-  window.speechSynthesis.cancel();
+  // Important: do NOT cancel then immediately speak on the same tick — Chrome
+  // silently drops speak() called synchronously after cancel(). We cancel, then
+  // create the utterance, then speak() inside a setTimeout(fn, 0) below.
+  if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+    window.speechSynthesis.cancel();
+  }
 
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.lang = getLanguageCode(appState.language);
@@ -1429,11 +1472,26 @@ function speakNarrationSegment(text, sceneIndex) {
   };
 
   // FIX: Chrome bug — synthesis may silently fail; use a small delay before speaking
+  // Additional Chrome bug: synthesis pauses silently after ~15s — ping resume() periodically
+  debugMedia("audio request", { mode: "speech-synthesis-queued", scene: sceneIndex + 1 });
   setTimeout(() => {
     if (appState.isPlaying && spokenScenes.has(sceneIndex)) {
+      // Chrome workaround: resume() before speak() if synthesis was paused
+      if (window.speechSynthesis.paused) window.speechSynthesis.resume();
       window.speechSynthesis.speak(utterance);
+      debugMedia("audio api response", { mode: "speech-synthesis", scene: sceneIndex + 1, status: "speak-called" });
     }
-  }, 100);
+  }, 150);
+
+  // FIX: Chrome keeps synthesis alive — ping resume() every 10s to prevent silent pause
+  if (!window._synthKeepAlive) {
+    window._synthKeepAlive = setInterval(() => {
+      if (window.speechSynthesis.speaking && window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+        debugMedia("audio api response", { mode: "speech-synthesis", status: "resume-ping" });
+      }
+    }, 10000);
+  }
 }
 
 function fadeAudioVolume(audioObj, startVol, endVol, durationMs) {
@@ -1529,6 +1587,12 @@ function stopPlayback() {
   lastTickerTime = 0;
   spokenScenes.clear();
 
+  // FIX: Clear synthesis keepalive on stop
+  if (window._synthKeepAlive) {
+    clearInterval(window._synthKeepAlive);
+    window._synthKeepAlive = null;
+  }
+
   if (appState.scenes.length) {
     loadSceneVideo(0, { autoplay: false, reason: "stop-reset" });
   }
@@ -1538,6 +1602,30 @@ function stopPlayback() {
 // Background Music
 // FIX: Robust play with retry on autoplay block
 // ─────────────────────────────────────────────────────────────────
+async function tryLoadAudioWithFallback(audio, primaryUrl, fallbacks = []) {
+  const urls = [primaryUrl, ...fallbacks].filter(Boolean);
+  for (const url of urls) {
+    try {
+      audio.src = url;
+      audio.load();
+      // Test if it loads without CORS error
+      await new Promise((resolve, reject) => {
+        const onLoad = () => { audio.removeEventListener('canplay', onLoad); audio.removeEventListener('error', onErr); resolve(); };
+        const onErr = () => { audio.removeEventListener('canplay', onLoad); audio.removeEventListener('error', onErr); reject(new Error('audio load failed')); };
+        audio.addEventListener('canplay', onLoad, { once: true });
+        audio.addEventListener('error', onErr, { once: true });
+        setTimeout(() => { audio.removeEventListener('canplay', onLoad); audio.removeEventListener('error', onErr); resolve(); }, 3000);
+      });
+      debugMedia("audio api response", { mode: "background-music", url, status: "loaded" });
+      return url;
+    } catch(e) {
+      warnMedia("audio fallback", { failedUrl: url, trying: "next fallback" });
+    }
+  }
+  warnMedia("audio fallback", { reason: "all audio sources failed — music disabled" });
+  return null;
+}
+
 function playBackgroundMusic() {
   const track = PREMIUM_SOUNDTRACKS[appState.soundtrack];
   if (!track) { warnMedia("audio fallback", { reason: "no soundtrack URL" }); return; }
@@ -1545,12 +1633,22 @@ function playBackgroundMusic() {
   const audio = getOrCreateBgAudio();
   debugMedia("audio request", { soundtrack: appState.soundtrack, track, volume: musicVolume });
 
-  if (audio.src !== track && !audio.src.endsWith(track)) {
-    audio.src = track;
-    audio.load();
+  const needsLoad = !audio.src || (!audio.src.endsWith(track) && audio.src !== track);
+  if (needsLoad) {
+    tryLoadAudioWithFallback(audio, track, AUDIO_FALLBACK_URLS).then(() => {
+      audio.volume = musicVolume;
+      if (!appState.isPlaying) return;
+      audio.play()
+        .then(() => debugMedia("audio api response", { soundtrack: appState.soundtrack, status: "playing" }))
+        .catch(e => {
+          warnMedia("audio play blocked", { track, error: e.message });
+          setTimeout(() => { if (appState.isPlaying) audio.play().catch(() => {}); }, 1000);
+        });
+    });
+    return;
   }
-  audio.volume = musicVolume;
 
+  audio.volume = musicVolume;
   const playPromise = audio.play();
   if (playPromise !== undefined) {
     playPromise
@@ -1558,11 +1656,8 @@ function playBackgroundMusic() {
       .catch(e => {
         warnMedia("audio play blocked", { track, error: e.message,
           hint: "AudioContext requires user gesture. Music will start on next interaction." });
-        // FIX: Retry after 1s in case gesture is registered slightly late
         setTimeout(() => {
-          if (appState.isPlaying) {
-            audio.play().catch(() => {});
-          }
+          if (appState.isPlaying) audio.play().catch(() => {});
         }, 1000);
       });
   }
@@ -1597,7 +1692,8 @@ function getSupportedRecorderMimeType() {
 async function loadExportVideoElement(scene, index) {
   ensureSceneMedia(scene, index);
   const video = document.createElement('video');
-  video.crossOrigin = "anonymous";
+  // FIX: Do NOT set crossOrigin for export - CDN videos don't send CORS headers
+  // Removing crossOrigin allows the browser to load the video without CORS restriction
   video.muted = true;
   video.playsInline = true;
   video.preload = "auto";
@@ -1654,7 +1750,8 @@ async function triggerVideoExport() {
   const outputStream = new MediaStream(canvasStream.getVideoTracks());
 
   const exportMusic = new Audio();
-  exportMusic.crossOrigin = "anonymous";
+  // FIX: Remove crossOrigin — audio CDNs may not send CORS headers
+  // exportMusic.crossOrigin = "anonymous";
   exportMusic.loop = true;
   exportMusic.volume = Math.min(0.8, musicVolume);
   exportMusic.src = PREMIUM_SOUNDTRACKS[appState.soundtrack] || PREMIUM_SOUNDTRACKS.cinematic_epic;

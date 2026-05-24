@@ -163,7 +163,21 @@
         <div class="video-preview-container aspect-16-9" id="video-preview-container">
           
           <!-- Real video tag for premium moving scenes -->
-          <video class="preview-video" id="preview-video" loop muted playsinline crossorigin="anonymous" preload="auto"></video>
+          <!-- FIX: Placeholder shown until video loads, prevents pure black on load -->
+          <div class="video-placeholder" id="video-placeholder" style="
+            position:absolute; inset:0; display:flex; flex-direction:column;
+            align-items:center; justify-content:center; background:linear-gradient(135deg,#0f0a1e 0%,#1a0533 50%,#080018 100%);
+            color:rgba(139,92,246,0.5); font-size:3rem; pointer-events:none; z-index:1;
+            transition: opacity 0.4s ease;">
+            <div style="font-size:4rem; margin-bottom:12px; opacity:0.4;">🎬</div>
+            <div style="font-size:0.9rem; color:rgba(255,255,255,0.25); font-family:var(--font-display);">Generate a story to preview</div>
+          </div>
+          <video class="preview-video" id="preview-video" loop muted playsinline preload="auto">
+            <!-- FIX: crossorigin="anonymous" removed — Google CDN (gtv-videos-bucket)
+                 and most stock video CDNs do NOT return Access-Control-Allow-Origin.
+                 With crossorigin set, the browser hard-blocks the video (CORS error = black screen).
+                 Speech synthesis (Web Speech API) handles audio separately so muted is fine. -->
+          </video>
 
           <!-- Dynamic subtitles overlay -->
           <div class="subtitle-overlay">
