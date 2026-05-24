@@ -237,6 +237,42 @@ let playerTimer = null;
 let elapsedTime = 0; // Current elapsed time in seconds
 let totalMovieDuration = 30; // Total duration in seconds
 let spokenScenes = new Set(); // Tracks which scenes have spoken in the current run
+let currentMediaLoadToken = 0;
+
+const DEBUG_PREFIX = "[CineStory Media]";
+
+function debugMedia(label, payload = {}) {
+  console.log(`${DEBUG_PREFIX} ${label}`, payload);
+}
+
+function warnMedia(label, payload = {}) {
+  console.warn(`${DEBUG_PREFIX} ${label}`, payload);
+}
+
+function errorMedia(label, payload = {}) {
+  console.error(`${DEBUG_PREFIX} ${label}`, payload);
+}
+
+function getFallbackVideoUrl(style = appState.style, seed = 0) {
+  const collection = PREMIUM_VIDEO_CATALOG[style] || PREMIUM_VIDEO_CATALOG.Cinematic;
+  return collection[Math.abs(seed) % collection.length];
+}
+
+function sanitizeMediaUrl(url) {
+  if (typeof url !== "string") return "";
+  const cleaned = url.trim();
+  if (!cleaned || cleaned === "undefined" || cleaned === "null") return "";
+  return cleaned;
+}
+
+function ensureSceneMedia(scene, index) {
+  if (!scene) return null;
+  scene.videoUrl = sanitizeMediaUrl(scene.videoUrl) || getFallbackVideoUrl(appState.style, index);
+  scene.audioStatus = scene.audioStatus || "web-speech-ready";
+  scene.audioUrl = scene.audioUrl || "";
+  scene.mediaReady = Boolean(scene.videoUrl);
+  return scene;
+}
 
 // Particle Background Animator
 let animationFrameId;
@@ -294,6 +330,7 @@ document.addEventListener("DOMContentLoaded", () => {
   loadConfigurations();
   feather.replace();
   startParticleBackground();
+  setupMediaDebugging();
   setupEventListeners();
   renderTrendingTemplates();
   initDragAndDrop();
@@ -368,6 +405,32 @@ function cacheElements() {
     
     toastContainer: document.getElementById('toast-container')
   };
+}
+
+function setupMediaDebugging() {
+  if (!elements.previewVideo) return;
+  elements.previewVideo.preload = "auto";
+
+  elements.previewVideo.addEventListener("loadstart", () => debugMedia("preview video loadstart", { src: elements.previewVideo.currentSrc || elements.previewVideo.src }));
+  elements.previewVideo.addEventListener("loadedmetadata", () => debugMedia("preview video metadata", {
+    src: elements.previewVideo.currentSrc,
+    duration: elements.previewVideo.duration,
+    videoWidth: elements.previewVideo.videoWidth,
+    videoHeight: elements.previewVideo.videoHeight
+  }));
+  elements.previewVideo.addEventListener("canplay", () => debugMedia("preview video canplay", { src: elements.previewVideo.currentSrc }));
+  elements.previewVideo.addEventListener("playing", () => debugMedia("playback state", { state: "video-playing", elapsedTime, activeSceneIndex: appState.activeSceneIndex }));
+  elements.previewVideo.addEventListener("pause", () => debugMedia("playback state", { state: "video-paused", elapsedTime, activeSceneIndex: appState.activeSceneIndex }));
+  elements.previewVideo.addEventListener("error", () => {
+    errorMedia("preview video failed", {
+      src: elements.previewVideo.currentSrc || elements.previewVideo.src,
+      error: elements.previewVideo.error
+    });
+  });
+
+  bgMusicAudio.preload = "auto";
+  bgMusicAudio.addEventListener("canplay", () => debugMedia("audio canplay", { src: bgMusicAudio.currentSrc || bgMusicAudio.src }));
+  bgMusicAudio.addEventListener("error", () => errorMedia("audio failed", { src: bgMusicAudio.currentSrc || bgMusicAudio.src, error: bgMusicAudio.error }));
 }
 
 // Settings storage
@@ -545,8 +608,9 @@ function setupEventListeners() {
     voiceVolume = parseFloat(e.target.value);
     if (activeUtterance) {
       window.speechSynthesis.cancel();
-      // Restart speech from active word or play normally
-      startSpeechSynthesis(appState.scenes[appState.activeSceneIndex].narration);
+      // Restart the current scene narration with the new volume.
+      spokenScenes.delete(appState.activeSceneIndex);
+      speakNarrationSegment(appState.scenes[appState.activeSceneIndex]?.narration, appState.activeSceneIndex);
     }
   });
 
@@ -570,7 +634,7 @@ function setupEventListeners() {
       appState.scenes[i].videoUrl = await searchVideoAsset(appState.scenes[i].prompt, appState.style);
     }
     updateTimelineList();
-    loadSceneVideo(appState.activeSceneIndex);
+    loadSceneVideo(appState.activeSceneIndex, { autoplay: appState.isPlaying, reason: "resync-all" });
   });
 
   // Export video trigger
@@ -673,10 +737,16 @@ async function startGenerationPipeline() {
     } else {
       movieData = await generateStoryProcedurally();
     }
+    debugMedia("video api response", movieData);
 
     appState.generatedTitle = movieData.title;
     appState.characterBio = movieData.characterBio;
-    appState.scenes = movieData.scenes;
+    appState.scenes = (movieData.scenes || []).map((scene, index) => ({
+      ...scene,
+      duration: Number(scene.duration) > 0 ? Number(scene.duration) : Math.ceil(appState.duration / Math.max(1, movieData.scenes.length)),
+      narration: scene.narration || "",
+      keywords: Array.isArray(scene.keywords) ? scene.keywords : []
+    }));
 
     // Stage 2: Sourcing Video Footage
     updateProgress(2, 75, "Connecting to Stock footage APIs...", "Searching high-definition actual moving scenes (no slideshows).");
@@ -685,10 +755,18 @@ async function startGenerationPipeline() {
       const scene = appState.scenes[i];
       updateProgress(2, 75 + Math.floor((i / appState.scenes.length) * 20), "Compiling scene visuals...", `Matching real video sequence for Scene ${i + 1}: ${scene.keywords.slice(0, 3).join(', ')}`);
       scene.videoUrl = await searchVideoAsset(scene.prompt, appState.style);
+      ensureSceneMedia(scene, i);
+      debugMedia("generated urls", { scene: i + 1, videoUrl: scene.videoUrl, audioUrl: scene.audioUrl, audioStatus: scene.audioStatus });
     }
 
     // Stage 3: Dynamic Audio Prep
     updateProgress(3, 100, "Synthesizing cinematic audio mix...", "Aligning text-to-speech timelines, music and subtitle overlays.");
+    debugMedia("audio api response", {
+      mode: "browser-speech-synthesis",
+      soundtrack: appState.soundtrack,
+      soundtrackUrl: PREMIUM_SOUNDTRACKS[appState.soundtrack],
+      scenes: appState.scenes.map((scene, index) => ({ scene: index + 1, narrationLength: scene.narration.length, audioStatus: scene.audioStatus }))
+    });
     await delay(1000);
 
     // Save project in history
@@ -701,11 +779,11 @@ async function startGenerationPipeline() {
     initializeTimelineDurations();
     
     // Load first scene
-    loadSceneVideo(0, true);
+    await loadSceneVideo(0, { autoplay: false, reason: "generation-complete" });
     showToast("AI Cinema Story successfully compiled!", "success");
 
   } catch (error) {
-    console.error(error);
+    errorMedia("generation failed", error);
     elements.renderOverlay.classList.add('hidden');
     showToast("Generation failed: " + error.message, "error");
     showScreen('setup');
@@ -874,10 +952,12 @@ async function searchVideoAsset(scenePrompt, style) {
     try {
       const keywords = scenePrompt.replace(/[^\w\s]/gi, '').split(" ").slice(0, 3).join(" ");
       const url = `https://api.pexels.com/videos/search?query=${encodeURIComponent(keywords)}&per_page=5&orientation=landscape`;
+      debugMedia("video request", { provider: "pexels", url, keywords });
       
       const response = await fetch(url, {
         headers: { "Authorization": appState.pexelsKey }
       });
+      debugMedia("video api response", { provider: "pexels", status: response.status, ok: response.ok });
       
       if (response.ok) {
         const data = await response.json();
@@ -888,20 +968,20 @@ async function searchVideoAsset(scenePrompt, style) {
           const files = selectedVideoObj.video_files;
           const match = files.find(f => f.quality === 'hd' || f.quality === 'sd') || files[0];
           if (match && match.link) {
+            debugMedia("generated urls", { provider: "pexels", videoUrl: match.link, mimeType: match.file_type || "video/mp4" });
             return match.link;
           }
         }
       }
     } catch (e) {
-      console.warn("Pexels search failed, fallback to local collection: ", e);
+      warnMedia("failed request", { provider: "pexels", error: e });
     }
   }
 
   // Fallback to local high-quality moving video collections matching styles
-  const collection = PREMIUM_VIDEO_CATALOG[style] || PREMIUM_VIDEO_CATALOG["Cinematic"];
-  // Pull a video sequentially or based on scene index hashes
-  const randIndex = Math.floor(Math.random() * collection.length);
-  return collection[randIndex];
+  const fallback = getFallbackVideoUrl(style, Math.floor(Math.random() * 1000));
+  debugMedia("generated urls", { provider: "fallback-catalog", videoUrl: fallback, mimeType: "video/mp4" });
+  return fallback;
 }
 
 // ----------------------------------------------------
@@ -1058,6 +1138,7 @@ function getLanguageCode(lang) {
 function updateTimelineList() {
   elements.timelineList.innerHTML = "";
   appState.scenes.forEach((scene, index) => {
+    ensureSceneMedia(scene, index);
     const card = document.createElement('div');
     card.className = `timeline-card ${index === appState.activeSceneIndex ? 'active-scene' : ''}`;
     card.draggable = true;
@@ -1069,7 +1150,7 @@ function updateTimelineList() {
       </div>
       <div class="timeline-card-body">
         <div class="scene-thumbnail-container">
-          <video class="scene-thumbnail-video" src="${scene.videoUrl}" muted playsinline></video>
+          <video class="scene-thumbnail-video" src="${scene.videoUrl}" muted playsinline preload="metadata"></video>
         </div>
         <div class="scene-text-preview">${scene.prompt}</div>
       </div>
@@ -1084,7 +1165,7 @@ function updateTimelineList() {
     card.addEventListener('click', (e) => {
       // Avoid firing if button action is clicked
       if (e.target.closest('button')) return;
-      loadSceneVideo(index);
+      loadSceneVideo(index, { autoplay: appState.isPlaying, reason: "timeline-click" });
     });
 
     // Replace visual action
@@ -1093,7 +1174,7 @@ function updateTimelineList() {
       scene.videoUrl = await searchVideoAsset(scene.prompt, appState.style);
       updateTimelineList();
       if (index === appState.activeSceneIndex) {
-        loadSceneVideo(index);
+        loadSceneVideo(index, { autoplay: appState.isPlaying, reason: "replace-scene-video" });
       }
       saveProjectToHistory();
     });
@@ -1144,7 +1225,7 @@ function initDragAndDrop() {
     appState.scenes = reorderedScenes;
     updateTimelineList();
     initializeTimelineDurations();
-    loadSceneVideo(0, true);
+    loadSceneVideo(0, { autoplay: appState.isPlaying, reason: "timeline-reorder" });
     saveProjectToHistory();
     showToast("Timeline order updated", "success");
   });
@@ -1166,7 +1247,28 @@ function getDragAfterElement(container, y) {
 // ----------------------------------------------------
 // 7. Video Player & TTS Narration Assembly Controls
 // ----------------------------------------------------
-function loadSceneVideo(index) {
+async function waitForVideoReady(video, timeoutMs = 9000) {
+  if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) return true;
+
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => cleanup(() => reject(new Error("Timed out while loading video media"))), timeoutMs);
+    const onReady = () => cleanup(() => resolve(true));
+    const onError = () => cleanup(() => reject(video.error || new Error("Video media failed to load")));
+    const cleanup = (done) => {
+      clearTimeout(timeout);
+      video.removeEventListener("loadeddata", onReady);
+      video.removeEventListener("canplay", onReady);
+      video.removeEventListener("error", onError);
+      done();
+    };
+
+    video.addEventListener("loadeddata", onReady, { once: true });
+    video.addEventListener("canplay", onReady, { once: true });
+    video.addEventListener("error", onError, { once: true });
+  });
+}
+
+async function loadSceneVideo(index, options = {}) {
   if (index < 0 || index >= appState.scenes.length) return;
   
   appState.activeSceneIndex = index;
@@ -1177,19 +1279,58 @@ function loadSceneVideo(index) {
     else c.classList.remove('active-scene');
   });
 
-  const scene = appState.scenes[index];
+  const scene = ensureSceneMedia(appState.scenes[index], index);
+  const autoplay = options.autoplay ?? appState.isPlaying;
+  const loadToken = ++currentMediaLoadToken;
   
   // Setup video source
-  const cleanUrl = scene.videoUrl;
-  if (elements.previewVideo.src !== cleanUrl) {
-    elements.previewVideo.src = cleanUrl;
-    elements.previewVideo.load();
-    elements.previewVideo.currentTime = 0.05; // Seek to 0.05s to force initial frame decoding
+  const cleanUrl = sanitizeMediaUrl(scene.videoUrl);
+  debugMedia("load scene", {
+    reason: options.reason || "scene-change",
+    scene: index + 1,
+    videoUrl: cleanUrl,
+    audioStatus: scene.audioStatus,
+    narrationLength: scene.narration?.length || 0,
+    autoplay
+  });
+
+  try {
+    if (!cleanUrl) throw new Error("Scene video URL is empty");
+
+    if (elements.previewVideo.currentSrc !== cleanUrl && elements.previewVideo.src !== cleanUrl) {
+      elements.previewVideo.pause();
+      elements.previewVideo.removeAttribute("src");
+      elements.previewVideo.load();
+      elements.previewVideo.src = cleanUrl;
+      elements.previewVideo.load();
+    }
+
+    await waitForVideoReady(elements.previewVideo);
+    if (loadToken !== currentMediaLoadToken) return;
+
+    const seekTarget = Math.min(0.05, Math.max(0, (elements.previewVideo.duration || 1) - 0.05));
+    if (Number.isFinite(seekTarget)) {
+      elements.previewVideo.currentTime = seekTarget;
+    }
+  } catch (error) {
+    errorMedia("scene video load failed", { scene: index + 1, videoUrl: cleanUrl, error });
+    const fallbackUrl = getFallbackVideoUrl(appState.style, index);
+    scene.videoUrl = fallbackUrl;
+    showToast(`Scene ${index + 1} video failed to load. Using fallback footage.`, "error");
+    if (elements.previewVideo.src !== fallbackUrl) {
+      elements.previewVideo.src = fallbackUrl;
+      elements.previewVideo.load();
+    }
+    try {
+      await waitForVideoReady(elements.previewVideo);
+    } catch (fallbackError) {
+      errorMedia("fallback video failed", { scene: index + 1, fallbackUrl, error: fallbackError });
+    }
   }
 
   // Play if active
-  if (appState.isPlaying) {
-    elements.previewVideo.play().catch(e => console.log("Play failed: ", e));
+  if (autoplay) {
+    elements.previewVideo.play().catch(e => warnMedia("video play blocked", { scene: index + 1, error: e }));
   } else {
     elements.previewVideo.pause();
   }
@@ -1210,7 +1351,7 @@ function updatePlaybackTimerUI() {
   elements.playerScrubber.value = totalMovieDuration > 0 ? (elapsedTime / totalMovieDuration) * 100 : 0;
 }
 
-function updatePlaybackScrub(pctVal) {
+async function updatePlaybackScrub(pctVal) {
   elapsedTime = (pctVal / 100) * totalMovieDuration;
   
   // Find matching scene index
@@ -1221,11 +1362,15 @@ function updatePlaybackScrub(pctVal) {
     }
   }
   
-  loadSceneVideo(activeIdx, false);
+  await loadSceneVideo(activeIdx, { autoplay: appState.isPlaying, reason: "scrub" });
   
   // Seek the current video file matching active scene offset
   const offset = elapsedTime - sceneStartTimes[activeIdx];
-  elements.previewVideo.currentTime = offset;
+  try {
+    elements.previewVideo.currentTime = Math.max(0, offset);
+  } catch (error) {
+    warnMedia("scrub seek failed", { offset, error });
+  }
   
   updatePlaybackTimerUI();
 }
@@ -1255,14 +1400,14 @@ function runPlayerTicker() {
   
   // Check if scene changed
   if (activeIdx !== appState.activeSceneIndex) {
-    loadSceneVideo(activeIdx, false);
+    loadSceneVideo(activeIdx, { autoplay: true, reason: "timeline-advance" });
   }
   
   const activeScene = appState.scenes[activeIdx];
   
   // Play video element if paused
   if (elements.previewVideo.paused && appState.isPlaying) {
-    elements.previewVideo.play().catch(e => console.log("Video ticker play failed:", e));
+    elements.previewVideo.play().catch(e => warnMedia("video ticker play failed", { error: e }));
   }
   
   // Speak narration if not spoken yet
@@ -1292,12 +1437,26 @@ function speakNarrationSegment(text, sceneIndex) {
   window.speechSynthesis.cancel(); // Stop active voices
   
   if (!text) {
+    warnMedia("audio fallback", { scene: sceneIndex + 1, reason: "empty narration" });
+    return;
+  }
+
+  if (!("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined") {
+    warnMedia("audio fallback", { scene: sceneIndex + 1, reason: "speech synthesis unavailable" });
+    elements.subtitleText.textContent = text;
     return;
   }
 
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.lang = getLanguageCode(appState.language);
   utterance.volume = voiceVolume;
+  debugMedia("audio request", {
+    mode: "speech-synthesis",
+    scene: sceneIndex + 1,
+    lang: utterance.lang,
+    textLength: text.length,
+    volume: voiceVolume
+  });
   
   // Set voice selections
   const voiceName = document.getElementById('voice-select')?.value;
@@ -1313,6 +1472,7 @@ function speakNarrationSegment(text, sceneIndex) {
   // Audio Ducking logic
   utterance.onstart = () => {
     activeUtterance = utterance;
+    debugMedia("audio api response", { mode: "speech-synthesis", scene: sceneIndex + 1, status: "started", voice: utterance.voice?.name || "browser-default" });
     fadeAudioVolume(bgMusicAudio, musicVolume, 0.08, 300); // Duck background music
   };
 
@@ -1327,6 +1487,7 @@ function speakNarrationSegment(text, sceneIndex) {
   };
 
   utterance.onend = () => {
+    debugMedia("audio api response", { mode: "speech-synthesis", scene: sceneIndex + 1, status: "ended" });
     if (activeUtterance === utterance) {
       activeUtterance = null;
     }
@@ -1334,7 +1495,9 @@ function speakNarrationSegment(text, sceneIndex) {
   };
 
   utterance.onerror = (e) => {
-    console.error("Speech Synthesis Error: ", e);
+    errorMedia("audio api response", { mode: "speech-synthesis", scene: sceneIndex + 1, status: "failed", error: e });
+    elements.subtitleText.textContent = text;
+    fadeAudioVolume(bgMusicAudio, bgMusicAudio.volume, musicVolume, 400);
   };
 
   window.speechSynthesis.speak(utterance);
@@ -1358,7 +1521,12 @@ function fadeAudioVolume(audioObj, startVol, endVol, durationMs) {
 }
 
 function startPlayback() {
+  if (!appState.scenes.length) {
+    showToast("Generate a story before playing the timeline.", "error");
+    return;
+  }
   appState.isPlaying = true;
+  debugMedia("playback state", { state: "start", elapsedTime, activeSceneIndex: appState.activeSceneIndex });
   elements.playPauseBtn.innerHTML = `<i data-feather="pause"></i>`;
   feather.replace();
   
@@ -1366,7 +1534,7 @@ function startPlayback() {
   playBackgroundMusic();
   
   // Resume video
-  elements.previewVideo.play().catch(e => console.log("Play failed:", e));
+  elements.previewVideo.play().catch(e => warnMedia("video play blocked", { error: e }));
   
   // Start Ticker
   lastTickerTime = Date.now();
@@ -1376,6 +1544,7 @@ function startPlayback() {
 
 function pausePlayback() {
   appState.isPlaying = false;
+  debugMedia("playback state", { state: "pause", elapsedTime, activeSceneIndex: appState.activeSceneIndex });
   elements.playPauseBtn.innerHTML = `<i data-feather="play"></i>`;
   feather.replace();
   
@@ -1388,6 +1557,7 @@ function pausePlayback() {
 
 function stopPlayback() {
   appState.isPlaying = false;
+  debugMedia("playback state", { state: "stop", elapsedTime, activeSceneIndex: appState.activeSceneIndex });
   elements.playPauseBtn.innerHTML = `<i data-feather="play"></i>`;
   feather.replace();
   
@@ -1396,7 +1566,11 @@ function stopPlayback() {
   bgMusicAudio.currentTime = 0;
   
   elements.previewVideo.pause();
-  elements.previewVideo.currentTime = 0.05;
+  try {
+    if (elements.previewVideo.readyState > 0) elements.previewVideo.currentTime = 0.05;
+  } catch (error) {
+    warnMedia("stop seek failed", { error });
+  }
   
   window.speechSynthesis.cancel();
   elements.subtitleText.textContent = "";
@@ -1404,17 +1578,21 @@ function stopPlayback() {
   
   elapsedTime = 0;
   spokenScenes.clear();
-  loadSceneVideo(0, true);
+  if (appState.scenes.length) {
+    loadSceneVideo(0, { autoplay: false, reason: "stop-reset" });
+  }
 }
 
 function playBackgroundMusic() {
   const track = PREMIUM_SOUNDTRACKS[appState.soundtrack];
+  debugMedia("audio request", { soundtrack: appState.soundtrack, track, volume: musicVolume });
   if (track && bgMusicAudio.src !== track) {
     bgMusicAudio.src = track;
+    bgMusicAudio.load();
   }
   bgMusicAudio.volume = musicVolume;
   
-  bgMusicAudio.play().catch(e => console.log("Background music play block: ", e));
+  bgMusicAudio.play().catch(e => warnMedia("audio play blocked", { track, error: e }));
 }
 
 function updateMixerVolumes() {
@@ -1436,6 +1614,38 @@ function initializeTimelineDurations() {
 // ----------------------------------------------------
 // 8. Client-Side Video Export & Assembly Engine
 // ----------------------------------------------------
+function getSupportedRecorderMimeType() {
+  const candidates = [
+    'video/webm;codecs=vp9,opus',
+    'video/webm;codecs=vp8,opus',
+    'video/webm'
+  ];
+  return candidates.find(type => MediaRecorder.isTypeSupported(type)) || '';
+}
+
+async function loadExportVideoElement(scene, index) {
+  ensureSceneMedia(scene, index);
+  const video = document.createElement('video');
+  video.crossOrigin = "anonymous";
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = "auto";
+  video.src = scene.videoUrl;
+  video.load();
+
+  try {
+    await waitForVideoReady(video, 12000);
+    video.currentTime = 0;
+    await video.play();
+    debugMedia("render progress", { stage: "export-video-loaded", scene: index + 1, videoUrl: scene.videoUrl });
+    return { video, ok: true };
+  } catch (error) {
+    errorMedia("render progress", { stage: "export-video-failed", scene: index + 1, videoUrl: scene.videoUrl, error });
+    video.remove();
+    return { video: null, ok: false };
+  }
+}
+
 async function triggerVideoExport() {
   showToast("Preparing rendering frames...", "success");
   
@@ -1481,15 +1691,31 @@ async function triggerVideoExport() {
     showToast("Export process cancelled", "error");
   });
 
-  const stream = exportCanvas.captureStream(30); // 30 FPS Capture
-  
-  // Audio compiler
-  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  const dest = audioCtx.createMediaStreamDestination();
+  const canvasStream = exportCanvas.captureStream(30); // 30 FPS Capture
+  const outputStream = new MediaStream(canvasStream.getVideoTracks());
+  const exportMusic = new Audio();
+  exportMusic.crossOrigin = "anonymous";
+  exportMusic.loop = true;
+  exportMusic.volume = Math.min(0.8, musicVolume);
+  exportMusic.src = PREMIUM_SOUNDTRACKS[appState.soundtrack] || PREMIUM_SOUNDTRACKS.cinematic_epic;
+
+  try {
+    await exportMusic.play();
+    const audioStream = exportMusic.captureStream?.() || exportMusic.mozCaptureStream?.();
+    if (audioStream) {
+      audioStream.getAudioTracks().forEach(track => outputStream.addTrack(track));
+      debugMedia("audio api response", { mode: "export-soundtrack", status: "attached", src: exportMusic.src });
+    } else {
+      warnMedia("audio fallback", { mode: "export-soundtrack", reason: "captureStream unsupported" });
+    }
+  } catch (error) {
+    warnMedia("audio fallback", { mode: "export-soundtrack", reason: "playback blocked or failed", error });
+  }
   
   // Setup audio recorder buffers
-  const mediaRecorder = new MediaRecorder(stream, {
-    mimeType: 'video/webm;codecs=vp9',
+  const recorderMimeType = getSupportedRecorderMimeType();
+  const mediaRecorder = new MediaRecorder(outputStream, {
+    ...(recorderMimeType ? { mimeType: recorderMimeType } : {}),
     videoBitsPerSecond: 3000000 // 3 Mbps
   });
 
@@ -1503,7 +1729,10 @@ async function triggerVideoExport() {
     overlay.remove();
     
     // Save output
-    const blob = new Blob(chunks, { type: 'video/webm' });
+    exportMusic.pause();
+    exportMusic.removeAttribute("src");
+    exportMusic.load();
+    const blob = new Blob(chunks, { type: recorderMimeType || 'video/webm' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -1525,18 +1754,7 @@ async function triggerVideoExport() {
     const scene = appState.scenes[idx];
     
     // Load video frame elements
-    const video = document.createElement('video');
-    video.src = scene.videoUrl;
-    video.crossOrigin = "anonymous";
-    video.muted = true;
-    video.playsInline = true;
-    
-    await new Promise((resolve) => {
-      video.onloadeddata = () => resolve();
-      video.onerror = () => resolve(); // continue even if error
-    });
-
-    video.play();
+    const { video, ok } = await loadExportVideoElement(scene, idx);
 
     const fps = 30;
     const framesCount = scene.duration * fps;
@@ -1545,8 +1763,17 @@ async function triggerVideoExport() {
     for (let frame = 0; frame < framesCount; frame++) {
       if (isCancelled) break;
       
-      // Draw video source image
-      ctx.drawImage(video, 0, 0, width, height);
+      // Draw video source image or visible fallback frame.
+      if (ok && video && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+        ctx.drawImage(video, 0, 0, width, height);
+      } else {
+        const gradient = ctx.createLinearGradient(0, 0, width, height);
+        gradient.addColorStop(0, "#111827");
+        gradient.addColorStop(0.5, "#312e81");
+        gradient.addColorStop(1, "#030712");
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, width, height);
+      }
 
       // Add watermark overlay if enabled
       if (appState.watermark === 'cinestory') {
@@ -1584,12 +1811,16 @@ async function triggerVideoExport() {
       progressPct.textContent = `${totalProgressPct}%`;
     }
 
-    video.pause();
-    video.remove();
+    if (video) {
+      video.pause();
+      video.remove();
+    }
   }
 
   mediaRecorder.stop();
-  audioCtx.close();
+  if (isCancelled) {
+    exportMusic.pause();
+  }
 }
 
 // ----------------------------------------------------
@@ -1662,7 +1893,7 @@ function renderHistoryModalList() {
       renderWorkspaceTabs('script');
       updateTimelineList();
       initializeTimelineDurations();
-      loadSceneVideo(0, true);
+      loadSceneVideo(0, { autoplay: false, reason: "history-load" });
       elements.historyModal.classList.add('hidden');
       showToast(`Loaded workspace: "${proj.title}"`, "success");
     });
