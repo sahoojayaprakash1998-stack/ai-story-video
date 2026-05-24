@@ -7,15 +7,11 @@
   <meta name="description" content="Generate cinematic AI story videos with real moving footage, custom narration, dynamic subtitles, and background music instantly.">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎬</text></svg>">
   <link rel="stylesheet" href="index.css">
-  <!-- Feather Icons for modern cinematic UI icons -->
   <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
 </head>
 <body>
-
-  <!-- Floating particles cinematic backdrop -->
   <canvas id="particles-canvas"></canvas>
 
-  <!-- Premium Sticky Header -->
   <header class="app-header">
     <div class="logo-container" id="logo-btn">
       <div class="logo-icon">C</div>
@@ -34,10 +30,7 @@
     </div>
   </header>
 
-  <!-- App Main Content Area -->
   <main class="main-layout" id="main-layout">
-    
-    <!-- 1. Setup / Prompt Generator Panel -->
     <section class="setup-screen" id="setup-screen">
       <div class="hero-tagline">AI STORY VIDEO GENERATOR</div>
       <h1 class="hero-title-main">Create Cinema From Words</h1>
@@ -45,7 +38,6 @@
         Generate custom cinematic stories, complete scripts, realistic characters, voice narration, background music, and real moving video footage in 14 languages. No signup. No watermarks.
       </p>
 
-      <!-- Prompt Console Card -->
       <div class="prompt-console glass-panel">
         <div class="prompt-textarea-wrapper">
           <textarea class="prompt-textarea" id="prompt-input" placeholder="Describe your movie idea (e.g., 'A lonely time traveler in a futuristic cyberpunk city tries to fix a broken compass that leads him to a long-lost memory...')"></textarea>
@@ -63,7 +55,6 @@
         </div>
       </div>
 
-      <!-- Config Options Grid -->
       <div class="options-grid">
         <div class="option-group">
           <label class="option-label">Video Style</label>
@@ -84,19 +75,19 @@
           <label class="option-label">Language</label>
           <select class="select-custom" id="language-select">
             <option value="English">English</option>
-            <option value="Hindi">Hindi (हिंदी)</option>
-            <option value="Odia">Odia (ଓଡ଼ିଆ)</option>
-            <option value="Bengali">Bengali (বাংলা)</option>
-            <option value="Telugu">Telugu (తెలుగు)</option>
-            <option value="Tamil">Tamil (தமிழ்)</option>
-            <option value="Malayalam">Malayalam (മലയാളം)</option>
-            <option value="Kannada">Kannada (ಕನ್ನಡ)</option>
-            <option value="Punjabi">Punjabi (ਪੰਜਾਬੀ)</option>
-            <option value="Marathi">Marathi (मराठी)</option>
-            <option value="Gujarati">Gujarati (ગુજરાતી)</option>
-            <option value="Assamese">Assamese (অসমীয়া)</option>
-            <option value="Urdu">Urdu (اردو)</option>
-            <option value="Sanskrit">Sanskrit (संस्कृतम्)</option>
+            <option value="Hindi">Hindi</option>
+            <option value="Odia">Odia</option>
+            <option value="Bengali">Bengali</option>
+            <option value="Telugu">Telugu</option>
+            <option value="Tamil">Tamil</option>
+            <option value="Malayalam">Malayalam</option>
+            <option value="Kannada">Kannada</option>
+            <option value="Punjabi">Punjabi</option>
+            <option value="Marathi">Marathi</option>
+            <option value="Gujarati">Gujarati</option>
+            <option value="Assamese">Assamese</option>
+            <option value="Urdu">Urdu</option>
+            <option value="Sanskrit">Sanskrit</option>
           </select>
         </div>
 
@@ -125,46 +116,32 @@
         </div>
       </div>
 
-      <!-- Action Button -->
       <div style="display: inline-block; border-radius: 12px;" class="premium-border-glow">
         <button class="btn btn-primary" id="generate-btn" style="padding: 14px 40px; font-size: 1.1rem; min-width: 250px;">
           <i data-feather="play"></i> Generate AI Story Video
         </button>
       </div>
 
-      <!-- Trending Templates Section -->
       <div class="templates-section">
         <h2 class="templates-title">
           <i data-feather="trending-up" style="color: var(--accent-cyan);"></i> Trending Templates
         </h2>
-        <div class="templates-grid" id="templates-grid">
-          <!-- Populated by JS -->
-        </div>
+        <div class="templates-grid" id="templates-grid"></div>
       </div>
     </section>
 
-    <!-- 2. Workspace Studio Screen (Initially Hidden) -->
     <section class="workspace-screen hidden" id="workspace-screen">
-      
-      <!-- Left Panel: Text & Configurations -->
       <aside class="workspace-sidebar">
         <div class="sidebar-tab-header">
           <div class="sidebar-tab active" data-tab="script">Script</div>
           <div class="sidebar-tab" data-tab="characters">Characters</div>
           <div class="sidebar-tab" data-tab="voice">Voice Settings</div>
         </div>
-
-        <div class="sidebar-content" id="tab-content-area">
-          <!-- Dynamic contents populated based on active tab -->
-        </div>
+        <div class="sidebar-content" id="tab-content-area"></div>
       </aside>
 
-      <!-- Center Panel: Video Preview Player -->
       <div class="workspace-center">
         <div class="video-preview-container aspect-16-9" id="video-preview-container">
-          
-          <!-- Real video tag for premium moving scenes -->
-          <!-- FIX: Placeholder shown until video loads, prevents pure black on load -->
           <div class="video-placeholder" id="video-placeholder" style="
             position:absolute; inset:0; display:flex; flex-direction:column;
             align-items:center; justify-content:center; background:linear-gradient(135deg,#0f0a1e 0%,#1a0533 50%,#080018 100%);
@@ -173,25 +150,23 @@
             <div style="font-size:4rem; margin-bottom:12px; opacity:0.4;">🎬</div>
             <div style="font-size:0.9rem; color:rgba(255,255,255,0.25); font-family:var(--font-display);">Generate a story to preview</div>
           </div>
+
           <video class="preview-video" id="preview-video" loop muted playsinline preload="auto">
             <!-- crossorigin intentionally omitted so public stock/sample videos can load
                  even when a provider does not expose CORS headers for media tags.
                  Speech synthesis (Web Speech API) handles narration separately. -->
           </video>
 
-          <!-- Dynamic subtitles overlay -->
           <div class="subtitle-overlay">
             <div class="subtitle-text" id="subtitle-text"></div>
           </div>
 
-          <!-- Video Rendering Progress Panel Overlay -->
           <div class="render-overlay hidden" id="render-overlay">
             <div class="render-progress-card">
               <div class="orbit-loader" style="margin: 0 auto 20px auto;"></div>
               <h3 class="render-stage-title" id="render-stage-title">Processing script...</h3>
               <p class="render-stage-desc" id="render-stage-desc">Analyzing prompt and breaking down cinematic scenes</p>
-              
-              <!-- Pipeline stepper -->
+
               <div class="render-pipeline">
                 <div class="pipeline-node completed" id="step-0">1</div>
                 <div class="pipeline-connector"><div class="pipeline-connector-fill" id="fill-0"></div></div>
@@ -202,7 +177,6 @@
                 <div class="pipeline-node" id="step-3">4</div>
               </div>
 
-              <!-- General progress bar -->
               <div class="progress-container">
                 <div class="progress-bar-sweep">
                   <div class="progress-fill-sweep" id="progress-fill"></div>
@@ -213,7 +187,6 @@
           </div>
         </div>
 
-        <!-- Video Player Playback Control Bar -->
         <div class="player-controls">
           <div class="playback-controls-group">
             <button class="btn-icon" id="play-pause-btn" title="Play/Pause">
@@ -223,7 +196,7 @@
               <i data-feather="square"></i>
             </button>
           </div>
-          
+
           <div class="scrubber-container">
             <span class="player-time" id="player-time-current">0:00</span>
             <input type="range" class="scrubber-slider" id="player-scrubber" min="0" max="100" value="0">
@@ -233,18 +206,14 @@
           <div class="volume-mixer-group">
             <i data-feather="volume-2" class="mixer-icon" title="Voiceover Volume"></i>
             <input type="range" class="volume-slider" id="voice-volume-slider" min="0" max="1" step="0.1" value="1">
-            
             <i data-feather="music" class="mixer-icon" title="Background Music Volume" style="margin-left: 6px;"></i>
             <input type="range" class="volume-slider" id="music-volume-slider" min="0" max="1" step="0.1" value="0.4">
           </div>
         </div>
       </div>
 
-      <!-- Right Panel: Story Timeline & Audio Mixing -->
       <aside class="workspace-sidebar sidebar-right">
         <div class="sidebar-content" style="height: 100%; display: flex; flex-direction: column;">
-          
-          <!-- Top section - General settings -->
           <div class="timeline-header">
             <h3 style="font-size: 1rem;">Video Timeline</h3>
             <button class="btn btn-secondary btn-card-action" id="regenerate-all-scenes-btn" title="Regenerate all visual assets">
@@ -252,12 +221,8 @@
             </button>
           </div>
 
-          <!-- Draggable Timeline card list -->
-          <div class="timeline-list" id="timeline-list">
-            <!-- Populated by JS -->
-          </div>
+          <div class="timeline-list" id="timeline-list"></div>
 
-          <!-- Bottom controls: Mix, Export -->
           <div style="margin-top: auto; padding-top: 15px; border-top: 1px solid var(--border-subtle); display: flex; flex-direction: column; gap: 10px;">
             <div class="sidebar-section">
               <label class="option-label">Soundtrack</label>
@@ -270,7 +235,7 @@
                 <option value="kids_happy">Whimsical Bright Journey</option>
               </select>
             </div>
-            
+
             <button class="btn btn-primary" id="export-video-btn" style="width: 100%;">
               <i data-feather="download"></i> Download Video (Watermark Free)
             </button>
@@ -278,16 +243,11 @@
               <i data-feather="arrow-left"></i> Create New Story
             </button>
           </div>
-
         </div>
       </aside>
-
     </section>
-
   </main>
 
-  <!-- Modals -->
-  <!-- 1. Settings / API Key Modal -->
   <div class="modal-overlay hidden" id="settings-modal">
     <div class="modal-card glass-panel">
       <div class="modal-header">
@@ -326,7 +286,6 @@
     </div>
   </div>
 
-  <!-- 2. Local History Drawer Modal -->
   <div class="modal-overlay hidden" id="history-modal">
     <div class="modal-card glass-panel" style="max-width: 600px;">
       <div class="modal-header">
@@ -337,9 +296,7 @@
         <p style="font-size: 0.85rem; margin-bottom: 10px;">
           Select a project to load it into the studio dashboard. Stories are automatically saved to your local browser storage.
         </p>
-        <div class="history-list" id="history-list-container">
-          <!-- Populated by JS -->
-        </div>
+        <div class="history-list" id="history-list-container"></div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" id="history-clear-btn" style="color: var(--accent-rose);">
@@ -350,33 +307,41 @@
     </div>
   </div>
 
-  <!-- Toast Notification Holder -->
   <div class="toast-container" id="toast-container"></div>
 
-  <!-- Application script -->
   <script src="app.js"></script>
 
-  <!-- FIX: Audio unlock interaction hint (auto-hides after first click) -->
   <script>
-    // Show an audio unlock nudge if autoplay policy might block audio
     window.addEventListener('DOMContentLoaded', () => {
       let banner = null;
       const showBanner = () => {
         if (banner || document.querySelector('.audio-unlock-banner')) return;
         banner = document.createElement('div');
         banner.className = 'audio-unlock-banner';
-        banner.innerHTML = '🎵 Click anywhere to enable audio & music playback';
-        banner.addEventListener('click', () => { banner.remove(); banner = null; });
+        banner.innerHTML = 'Click anywhere to enable audio & music playback';
+        banner.addEventListener('click', () => {
+          banner.remove();
+          banner = null;
+        });
         document.body.appendChild(banner);
-        setTimeout(() => { if (banner) { banner.remove(); banner = null; } }, 6000);
+        setTimeout(() => {
+          if (banner) {
+            banner.remove();
+            banner = null;
+          }
+        }, 6000);
       };
-      // Show banner after 2s if no interaction yet
+
       setTimeout(() => {
         if (!window._audioUnlocked) showBanner();
       }, 2000);
+
       document.addEventListener('click', () => {
         window._audioUnlocked = true;
-        if (banner) { banner.remove(); banner = null; }
+        if (banner) {
+          banner.remove();
+          banner = null;
+        }
       }, { once: true });
     });
   </script>
