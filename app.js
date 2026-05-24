@@ -750,8 +750,7 @@ async function playBackgroundMusic() {
   }
 }
 
-  warnMedia("audio fallback", { reason: "all background music URLs failed" });
-}async function playBackgroundMusic() {
+  async function playBackgroundMusic() {
   unlockAudio();
 
   if (!bgAudio) return;
@@ -776,6 +775,7 @@ async function playBackgroundMusic() {
     });
   }
 }
+function speakScene(index) {
 
 function speakScene(index) {
   const scene = appState.scenes[index];
