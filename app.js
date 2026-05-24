@@ -2,40 +2,31 @@
 
 const VIDEO_CATALOG = {
   Cinematic: [
-    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
-    "https://media.w3.org/2010/05/sintel/trailer.mp4"
+    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"
   ],
   Realistic: [
-    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
-    "https://media.w3.org/2010/05/sintel/trailer.mp4"
+    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"
   ],
   Anime: [
-    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
-    "https://media.w3.org/2010/05/sintel/trailer.mp4"
+    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"
   ],
   Horror: [
-    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
-    "https://media.w3.org/2010/05/sintel/trailer.mp4"
+    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"
   ],
   Fantasy: [
-    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
-    "https://media.w3.org/2010/05/sintel/trailer.mp4"
+    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"
   ],
   Documentary: [
-    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
-    "https://media.w3.org/2010/05/sintel/trailer.mp4"
+    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"
   ],
   Adventure: [
-    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
-    "https://media.w3.org/2010/05/sintel/trailer.mp4"
+    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"
   ],
   "Kids story": [
-    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
-    "https://media.w3.org/2010/05/sintel/trailer.mp4"
+    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"
   ],
   Motivational: [
-    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
-    "https://media.w3.org/2010/05/sintel/trailer.mp4"
+    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"
   ]
 };
 
