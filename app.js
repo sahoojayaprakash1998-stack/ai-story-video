@@ -56,6 +56,111 @@ const HARDCODED_LAST_RESORT_VIDEOS = [
   "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4"
 ];
 
+// ─────────────────────────────────────────────────────────────────
+// Canvas Animated Fallback — shown when all video URLs fail
+// Generates a style-matched animated gradient so the player is
+// never black, even if all CDN sources are unreachable
+// ─────────────────────────────────────────────────────────────────
+const STYLE_GRADIENTS = {
+  "Cinematic":    [["#0a0a1a", "#1a0533", "#0d1b2a"], ["#1a0533", "#2d1b69", "#0a0a1a"]],
+  "Realistic":    [["#1a1a2e", "#16213e", "#0f3460"], ["#16213e", "#0f3460", "#1a1a2e"]],
+  "Anime":        [["#ff6b9d", "#c44569", "#f8a5c2"], ["#c44569", "#f8a5c2", "#ff6b9d"]],
+  "Horror":       [["#0d0000", "#1a0000", "#2d0000"], ["#1a0000", "#3d0000", "#0d0000"]],
+  "Fantasy":      [["#0d1b2a", "#1b4332", "#2d6a4f"], ["#1b4332", "#40916c", "#0d1b2a"]],
+  "Documentary":  [["#1a2f1a", "#2d4a1e", "#3d5a2a"], ["#2d4a1e", "#4a7c3f", "#1a2f1a"]],
+  "Adventure":    [["#1a0a00", "#2d1500", "#4a2800"], ["#2d1500", "#6b3d00", "#1a0a00"]],
+  "Kids story":   [["#1a0066", "#6600cc", "#9933ff"], ["#6600cc", "#cc33ff", "#1a0066"]],
+  "Motivational": [["#0d0d1a", "#1a1a3d", "#0d2d4a"], ["#1a1a3d", "#2d2d6b", "#0d0d1a"]]
+};
+
+let canvasFallbackAnim = null;
+
+function startCanvasFallback(containerEl, style) {
+  stopCanvasFallback();
+
+  const canvas = document.createElement("canvas");
+  canvas.style.cssText = `
+    position:absolute; inset:0; width:100%; height:100%;
+    z-index:2; pointer-events:none;
+  `;
+  canvas.id = "canvas-fallback";
+  containerEl.appendChild(canvas);
+
+  const ctx = canvas.getContext("2d");
+  const colors = STYLE_GRADIENTS[style] || STYLE_GRADIENTS["Cinematic"];
+  let t = 0;
+  let phase = 0;
+
+  // Floating particles
+  const particles = Array.from({ length: 20 }, () => ({
+    x: Math.random(), y: Math.random(),
+    vx: (Math.random() - 0.5) * 0.0008,
+    vy: (Math.random() - 0.5) * 0.0008,
+    r: Math.random() * 3 + 1,
+    a: Math.random() * 0.4 + 0.1
+  }));
+
+  function draw() {
+    canvas.width  = canvas.offsetWidth  || 640;
+    canvas.height = canvas.offsetHeight || 360;
+    const W = canvas.width, H = canvas.height;
+
+    t += 0.005;
+    phase = (phase + 0.003) % 1;
+
+    const c1 = colors[0], c2 = colors[1];
+    const grad = ctx.createLinearGradient(
+      W * Math.sin(t * 0.7) * 0.5 + W * 0.5,
+      0,
+      W * Math.cos(t * 0.5) * 0.5 + W * 0.5,
+      H
+    );
+    grad.addColorStop(0,   c1[0]);
+    grad.addColorStop(0.5, c1[1]);
+    grad.addColorStop(1,   c1[2]);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+
+    // Overlay sweep
+    const sweep = ctx.createRadialGradient(
+      W * (0.5 + Math.sin(t * 0.4) * 0.3),
+      H * (0.5 + Math.cos(t * 0.3) * 0.3),
+      0,
+      W * 0.5, H * 0.5, W * 0.8
+    );
+    sweep.addColorStop(0,   "rgba(139,92,246,0.15)");
+    sweep.addColorStop(0.5, "rgba(59,130,246,0.08)");
+    sweep.addColorStop(1,   "rgba(0,0,0,0)");
+    ctx.fillStyle = sweep;
+    ctx.fillRect(0, 0, W, H);
+
+    // Particles
+    particles.forEach(p => {
+      p.x += p.vx; p.y += p.vy;
+      if (p.x < 0 || p.x > 1) p.vx *= -1;
+      if (p.y < 0 || p.y > 1) p.vy *= -1;
+      ctx.beginPath();
+      ctx.arc(p.x * W, p.y * H, p.r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,255,255,${p.a * (0.5 + Math.sin(t + p.x * 10) * 0.5)})`;
+      ctx.fill();
+    });
+
+    canvasFallbackAnim = requestAnimationFrame(draw);
+  }
+  draw();
+  debugMedia("canvas fallback", { status: "started", style });
+}
+
+function stopCanvasFallback() {
+  if (canvasFallbackAnim) {
+    cancelAnimationFrame(canvasFallbackAnim);
+    canvasFallbackAnim = null;
+  }
+  const existing = document.getElementById("canvas-fallback");
+  if (existing) existing.remove();
+}
+
+
 // 2. Pre-curated Soundtracks
 const PREMIUM_SOUNDTRACKS = {
   // Using Internet Archive public domain / CC0 audio - reliable, no hotlink restrictions
@@ -329,10 +434,11 @@ function getFallbackVideoUrl(style = appState.style, seed = 0) {
 }
 
 // Try loading URLs in sequence — returns first one that fires canplay within timeout
-async function tryVideoUrlsInOrder(vid, urls, timeoutMs = 8000) {
+async function tryVideoUrlsInOrder(vid, urls, timeoutMs = 12000) {
   for (const url of urls) {
     if (!url) continue;
     try {
+      debugMedia("video request", { attempting: url });
       // Reset video element completely
       vid.pause();
       vid.removeAttribute("crossorigin");
@@ -1310,12 +1416,15 @@ async function loadSceneVideo(index, options = {}) {
     const loadedUrl = await tryVideoUrlsInOrder(vid, urlsToTry);
     if (loadedUrl) {
       scene.videoUrl = loadedUrl;
+      stopCanvasFallback(); // video loaded — remove canvas if it was showing
     } else {
       errorMedia("scene video load failed", {
         scene: index + 1, triedUrls: urlsToTry.length,
-        message: "All video sources failed"
+        message: "All video sources failed — using canvas fallback"
       });
-      showToast(`Scene ${index + 1}: Video unavailable. Check network.`, "error");
+      // FIX: Start animated canvas fallback so player is never black
+      startCanvasFallback(elements.videoPreviewContainer, appState.style);
+      warnMedia("canvas fallback active", { scene: index + 1 });
     }
   }
 
@@ -1332,6 +1441,10 @@ async function loadSceneVideo(index, options = {}) {
   if (placeholder && !placeholder.classList.contains('hidden-placeholder')) {
     placeholder.classList.add('hidden-placeholder');
     debugMedia("video source set", { status: "placeholder-hidden", scene: index + 1 });
+  }
+  // Stop canvas fallback if video loaded successfully
+  if (vid.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+    stopCanvasFallback();
   }
 
   // FIX: Render first frame even on non-autoplay by seeking to 0.01
@@ -1665,6 +1778,7 @@ function stopPlayback() {
   lastTickerTime = 0;
   spokenScenes.clear();
   _playInFlight = false;
+  stopCanvasFallback();
 
   // FIX: Clear synthesis keepalive on stop
   if (window._synthKeepAlive) {
