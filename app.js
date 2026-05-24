@@ -1287,18 +1287,11 @@ async function loadSceneVideo(index, options = {}) {
     }
   } catch(e) { /* seek may fail on some formats */ }
 
-  // FIX: Always attempt playback if autoplay is requested
-  // even if video loaded partially — the browser will handle buffering
   if (autoplay) {
-    const playPromise = vid.play();
-    if (playPromise !== undefined) {
-      playPromise.catch(e => {
-        warnMedia("video play blocked", { scene: index + 1, error: e.message,
-          hint: "User gesture required. Click play button." });
-      });
-    }
+    // FIX: Reset in-flight flag since we just did a fresh load — previous play() is void
+    _playInFlight = false;
+    safeVideoPlay(vid, `load-scene-${index + 1}`);
   } else {
-    // On non-autoplay, ensure video is paused at first frame (not black)
     vid.pause();
   }
 
@@ -1339,11 +1332,46 @@ async function updatePlaybackScrub(pctVal) {
 // ─────────────────────────────────────────────────────────────────
 // Player Ticker — FIX: use Date.now() delta with proper init
 // ─────────────────────────────────────────────────────────────────
+// FIX: Track whether a play() call is in-flight to prevent spam
+let _playInFlight = false;
+
+function safeVideoPlay(vid, reason) {
+  // Never call play() if one is already pending — this is what causes the 987 warnings
+  if (_playInFlight) return;
+  if (!vid.paused) return; // already playing, nothing to do
+  _playInFlight = true;
+  debugMedia("video play attempt", { reason, readyState: vid.readyState, src: vid.currentSrc || vid.getAttribute("src") });
+  vid.play()
+    .then(() => {
+      _playInFlight = false;
+      debugMedia("playback state", { state: "video-playing-confirmed", reason });
+    })
+    .catch(e => {
+      _playInFlight = false;
+      // NotAllowedError = autoplay blocked by browser policy (needs user gesture)
+      // AbortError = play() interrupted by a load() call - normal, not an error
+      if (e.name === "AbortError") return; // silent - load() interrupted play(), fine
+      if (e.name === "NotAllowedError") {
+        warnMedia("autoplay blocked", { hint: "User must click Play button to start video", error: e.message });
+        // Don't retry — set isPlaying false so the UI reflects reality
+        if (appState.isPlaying) {
+          appState.isPlaying = false;
+          if (elements.playPauseBtn) {
+            elements.playPauseBtn.innerHTML = `<i data-feather="play"></i>`;
+            feather.replace();
+          }
+          showToast("Click ▶ Play to start (browser requires a click first)", "error");
+        }
+        return;
+      }
+      warnMedia("video play error", { name: e.name, message: e.message });
+    });
+}
+
 function runPlayerTicker() {
   if (!appState.isPlaying) return;
 
   const now = Date.now();
-  // FIX: Guard against massive delta on first tick
   const delta = lastTickerTime > 0 ? Math.min((now - lastTickerTime) / 1000, 0.5) : 0;
   lastTickerTime = now;
 
@@ -1359,23 +1387,24 @@ function runPlayerTicker() {
   }
 
   if (activeIdx !== appState.activeSceneIndex) {
-    spokenScenes.delete(appState.activeSceneIndex); // reset spoken state for old scene
+    spokenScenes.delete(appState.activeSceneIndex);
+    // loadSceneVideo is async — don't await in ticker, it handles its own play()
     loadSceneVideo(activeIdx, { autoplay: true, reason: "timeline-advance" });
+  } else {
+    // FIX: Only nudge play if video is paused AND we're not mid-load
+    // Use safeVideoPlay to avoid the play()-spam that caused 987 console warnings
+    const vid = elements.previewVideo;
+    if (vid.paused && vid.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
+      safeVideoPlay(vid, "ticker-nudge");
+    }
   }
 
-  const vid = elements.previewVideo;
-  if (vid.paused && appState.isPlaying) {
-    vid.play().catch(e => warnMedia("ticker play blocked", { error: e.message }));
-  }
-
-  // FIX: Only speak if not already speaking this scene
   const activeScene = appState.scenes[activeIdx];
   if (activeScene && !spokenScenes.has(activeIdx) && appState.isPlaying) {
     spokenScenes.add(activeIdx);
     speakNarrationSegment(activeScene.narration, activeIdx);
   }
 
-  // Fallback subtitle progress (when speech boundary events unavailable)
   if (activeScene && !window.speechSynthesis.speaking) {
     const sceneElapsed = elapsedTime - (sceneStartTimes[activeIdx] || 0);
     const words = activeScene.narration.split(" ");
@@ -1529,16 +1558,9 @@ function startPlayback() {
   playBackgroundMusic();
 
   const vid = elements.previewVideo;
-  const playPromise = vid.play();
-  if (playPromise !== undefined) {
-    playPromise.catch(e => {
-      warnMedia("video play blocked on start", { error: e.message });
-      // FIX: If autoplay blocked, retry after a small delay (browser may allow after gesture)
-      setTimeout(() => {
-        if (appState.isPlaying) vid.play().catch(() => {});
-      }, 500);
-    });
-  }
+  // FIX: Use safeVideoPlay — handles NotAllowedError, AbortError, and in-flight dedup
+  _playInFlight = false; // reset on explicit user-initiated play
+  safeVideoPlay(vid, "start-playback");
 
   // Start narration for current scene if not yet spoken
   const currentScene = appState.scenes[appState.activeSceneIndex];
@@ -1553,6 +1575,7 @@ function startPlayback() {
 
 function pausePlayback() {
   appState.isPlaying = false;
+  _playInFlight = false;
   debugMedia("playback state", { state: "pause", elapsedTime, scene: appState.activeSceneIndex });
   elements.playPauseBtn.innerHTML = `<i data-feather="play"></i>`;
   feather.replace();
@@ -1586,6 +1609,7 @@ function stopPlayback() {
   elapsedTime = 0;
   lastTickerTime = 0;
   spokenScenes.clear();
+  _playInFlight = false;
 
   // FIX: Clear synthesis keepalive on stop
   if (window._synthKeepAlive) {
